@@ -1,0 +1,70 @@
+name: SophaxChat
+options:
+  bundleIdPrefix: com.sophax
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "15.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+    ENABLE_STRICT_CONCURRENCY_CHECKING: complete
+    GCC_OPTIMIZATION_LEVEL: s
+    SWIFT_OPTIMIZATION_LEVEL: -O
+    # Security hardening
+    ENABLE_HARDENED_RUNTIME: YES
+    OTHER_SWIFT_FLAGS: "-D SOPHAX_RELEASE"
+
+targets:
+  SophaxChat:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: SophaxChat
+    dependencies:
+      - target: SophaxChatCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sophax.SophaxChat
+        INFOPLIST_FILE: SophaxChat/Info.plist
+        CODE_SIGN_ENTITLEMENTS: SophaxChat/SophaxChat.entitlements
+        # Prevent screenshots from leaking sensitive content
+        UIApplicationSceneManifest: ""
+    info:
+      path: SophaxChat/Info.plist
+      properties:
+        CFBundleDisplayName: SophaxChat
+        UILaunchScreen:
+          UIColorName: "AccentColor"
+        NSLocalNetworkUsageDescription: "SophaxChat uses the local network to discover nearby users and send encrypted messages without internet."
+        NSBonjourServices:
+          - "_sophax-chat._tcp"
+        UIBackgroundModes:
+          - nearby-interaction
+        UIRequiredDeviceCapabilities:
+          - bluetooth-le
+
+  SophaxChatCore:
+    type: framework
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources/SophaxChatCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sophax.SophaxChatCore
+        DEFINES_MODULE: YES
+
+  SophaxChatCoreTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/SophaxChatCoreTests
+    dependencies:
+      - target: SophaxChatCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sophax.SophaxChatCoreTests
