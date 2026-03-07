@@ -86,8 +86,12 @@ public final class IdentityManager: @unchecked Sendable {
     // MARK: - Public API
 
     public func setUsername(_ username: String) throws {
-        try keychain.saveUsername(username)
-        publicIdentity = buildPublicIdentity(username: username, signing: signingPair, dh: dhPair)
+        let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 64 else {
+            throw SophaxError.invalidMessageFormat("Username must be 1–64 characters")
+        }
+        try keychain.saveUsername(trimmed)
+        publicIdentity = buildPublicIdentity(username: trimmed, signing: signingPair, dh: dhPair)
     }
 
     public var signingKeyPair: SigningKeyPair { signingPair }

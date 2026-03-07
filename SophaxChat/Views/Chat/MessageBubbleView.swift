@@ -25,11 +25,18 @@ struct MessageBubbleView: View {
                     .background(isSent ? Color.accentColor : Color(.secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 18))
 
-                // Timestamp + status
+                // Timestamp + relay indicator + status
                 HStack(spacing: 4) {
                     Text(message.timestamp, style: .time)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+
+                    if let hops = message.hopCount, hops > 0 {
+                        Label("\(hops)", systemImage: "arrow.triangle.branch")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .help("Doručeno přes \(hops) relay hop\(hops == 1 ? "" : "y")")
+                    }
 
                     if isSent {
                         statusIcon

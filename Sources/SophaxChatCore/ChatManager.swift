@@ -64,6 +64,9 @@ public final class ChatManager: @unchecked Sendable {
     /// Drained as soon as a path (direct or relay) becomes available.
     private var pendingQueue: [String: [(wire: WireMessage, messageID: String)]] = [:]
 
+    /// Fires every 60 seconds to purge messages whose expiresAt has passed.
+    private var expiryTimer: Timer?
+
     public weak var delegate: ChatManagerDelegate?
 
     // MARK: - Init
@@ -88,10 +91,35 @@ public final class ChatManager: @unchecked Sendable {
     // MARK: - Public API
 
     /// Start advertising and browsing on the P2P mesh.
-    public func start() { mesh.start() }
+    public func start() {
+        mesh.start()
+        try? preKeys.rotateIfNeeded()
+        scheduleExpiryTimer()
+    }
 
     /// Stop the mesh (call on app background / termination).
-    public func stop() { mesh.stop() }
+    public func stop() {
+        mesh.stop()
+        expiryTimer?.invalidate()
+        expiryTimer = nil
+    }
+
+    private func scheduleExpiryTimer() {
+        expiryTimer?.invalidate()
+        // Run on main runloop — safe since all ChatManager state is on main
+        expiryTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.purgeExpiredMessages()
+        }
+        // Fire once immediately to clean up any stale messages from previous sessions
+        purgeExpiredMessages()
+    }
+
+    private func purgeExpiredMessages() {
+        messageStore.deleteExpiredMessages()
+    }
+
+    /// Maximum message body length in UTF-8 bytes.
+    public static let maxMessageBytes = 65_536   // 64 KB
 
     /// Send a plaintext message to `peerID`.
     ///
@@ -101,6 +129,11 @@ public final class ChatManager: @unchecked Sendable {
     ///   - Peer reachable via relay: wraps in `RelayEnvelope`
     ///   - No connectivity: queues for later delivery
     public func sendMessage(_ text: String, toPeerID peerID: String, expiresAt: Date? = nil) {
+        guard !text.isEmpty, text.utf8.count <= Self.maxMessageBytes else {
+            delegate?.chatManager(self, didEncounterError:
+                SophaxError.invalidMessageFormat("Message must be 1–65536 bytes"))
+            return
+        }
         let messageID = UUID().uuidString
         let stored = StoredMessage(
             id: messageID, peerID: peerID,
@@ -285,8 +318,10 @@ public final class ChatManager: @unchecked Sendable {
         let peerID = senderBundle.peerID
         peerBundles[peerID] = senderBundle
 
-        // Retrieve and consume the one-time prekey if Alice used one
+        // Retrieve and consume the one-time prekey if Alice used one,
+        // then replenish the supply so future sessions have keys available.
         let otpk = payload.usedOneTimePreKeyId.flatMap { preKeys.consumeOneTimePreKey(id: $0) }
+        try? preKeys.replenishIfNeeded()
 
         // X3DH: Bob (responder) side — produces the same shared secret as Alice
         let sharedSecret = try X3DH.initiateReceiver(
@@ -484,16 +519,16 @@ extension ChatManager: MeshManagerDelegate {
     }
 
     public func meshManager(_ manager: MeshManager, didConnectToPeer mcPeerID: String) {
-        // Send our PreKeyBundle immediately so the peer can initiate X3DH
-        Task {
-            do {
-                let bundle = try preKeys.generateBundle()
-                let hello  = HelloMessage(bundle: bundle)
-                let wire   = try wireBuilder.build(.hello, payload: hello)
-                try mesh.send(wire, toPeerID: mcPeerID)
-            } catch {
-                delegate?.chatManager(self, didEncounterError: error)
-            }
+        // Send our PreKeyBundle immediately so the peer can initiate X3DH.
+        // Called on the main thread by MeshManager — all operations here are synchronous
+        // and non-blocking (pure in-memory crypto + MCSession.send which is thread-safe).
+        do {
+            let bundle = try preKeys.generateBundle()
+            let hello  = HelloMessage(bundle: bundle)
+            let wire   = try wireBuilder.build(.hello, payload: hello)
+            try mesh.send(wire, toPeerID: mcPeerID)
+        } catch {
+            delegate?.chatManager(self, didEncounterError: error)
         }
         // Note: drainQueue is called from handleHello once the peer's real peerID is known
     }

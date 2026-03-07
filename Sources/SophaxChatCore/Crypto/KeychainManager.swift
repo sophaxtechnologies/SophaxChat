@@ -57,6 +57,25 @@ public final class KeychainManager {
         return (id, key)
     }
 
+    // MARK: - Signed Prekey Creation Date
+
+    /// Stores the Date the current signed prekey was generated.
+    /// Used to trigger rotation after 7 days.
+    public func saveSignedPreKeyDate(_ date: Date) throws {
+        var ti = date.timeIntervalSinceReferenceDate
+        let data = Data(bytes: &ti, count: MemoryLayout<Double>.size)
+        try save(data: data, account: "spk.created_at")
+    }
+
+    public func loadSignedPreKeyDate() throws -> Date {
+        let data = try load(account: "spk.created_at")
+        guard data.count == MemoryLayout<Double>.size else {
+            throw SophaxError.keychainError(errSecItemNotFound)
+        }
+        let ti = data.withUnsafeBytes { $0.load(as: Double.self) }
+        return Date(timeIntervalSinceReferenceDate: ti)
+    }
+
     // MARK: - One-Time Prekeys
 
     public func saveOneTimePreKey(id: UInt32, key: Curve25519.KeyAgreement.PrivateKey) throws {

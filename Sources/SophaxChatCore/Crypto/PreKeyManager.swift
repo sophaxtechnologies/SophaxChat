@@ -78,6 +78,7 @@ public final class PreKeyManager: @unchecked Sendable {
             let pair = DHKeyPair()
             let id   = UInt32.random(in: 1...UInt32.max)
             try keychain.saveSignedPreKey(id: id, key: pair.privateKey)
+            try keychain.saveSignedPreKeyDate(Date())
             self.signedPreKey   = pair
             self.signedPreKeyId = id
         }
@@ -93,7 +94,9 @@ public final class PreKeyManager: @unchecked Sendable {
         let spkData      = signedPreKey.publicKeyData
         let spkSignature = try identity.sign(spkData)
         let otp          = oneTimePreKeys.randomElement()
-        let pub          = identity.publicIdentity!
+        guard let pub    = identity.publicIdentity else {
+            throw SophaxError.sessionNotInitialized
+        }
 
         return PreKeyBundle(
             signingKeyPublic:      pub.signingKeyPublic,
@@ -121,13 +124,29 @@ public final class PreKeyManager: @unchecked Sendable {
     /// The current signed prekey pair (Bob's initial ratchet key in X3DH).
     public var signedPreKeyPair: DHKeyPair { signedPreKey }
 
-    /// Rotate the signed prekey (should be done every ~7 days).
+    /// Rotate the signed prekey unconditionally.
     public func rotateSignedPreKey() throws {
         let pair = DHKeyPair()
         let id   = UInt32.random(in: 1...UInt32.max)
         try keychain.saveSignedPreKey(id: id, key: pair.privateKey)
+        try keychain.saveSignedPreKeyDate(Date())
         signedPreKey   = pair
         signedPreKeyId = id
+    }
+
+    /// Rotate only if the current signed prekey is older than `maxAge` seconds (default 7 days).
+    public func rotateIfNeeded(maxAge: TimeInterval = 7 * 24 * 3600) throws {
+        let createdAt = (try? keychain.loadSignedPreKeyDate()) ?? .distantPast
+        guard Date().timeIntervalSince(createdAt) > maxAge else { return }
+        try rotateSignedPreKey()
+    }
+
+    /// Generate additional one-time prekeys if the supply is below `target / 2`.
+    /// Call this after consuming a one-time prekey to keep the pool healthy.
+    public func replenishIfNeeded(target: Int = 20) throws {
+        let current = oneTimePreKeys.count
+        guard current < target / 2 else { return }
+        try generateOneTimePreKeys(count: target - current)
     }
 
     // MARK: - Private

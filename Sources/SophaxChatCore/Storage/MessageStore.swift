@@ -40,10 +40,12 @@ public final class MessageStore: @unchecked Sendable {
         }
 
         // Use Application Support directory (excluded from iCloud backup by default)
-        let appSupport = FileManager.default.urls(
+        guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first!
+        ).first else {
+            throw SophaxError.invalidMessageFormat("Application Support directory unavailable")
+        }
         self.baseURL = appSupport.appendingPathComponent("sophax_messages", isDirectory: true)
 
         try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
@@ -66,8 +68,10 @@ public final class MessageStore: @unchecked Sendable {
     }
 
     /// Append a single message to a conversation.
+    /// Idempotent: silently ignores duplicates (same message ID) to handle relay replays.
     public func append(message: StoredMessage) throws {
         var messages = (try? messages(forPeer: message.peerID)) ?? []
+        guard !messages.contains(where: { $0.id == message.id }) else { return }
         messages.append(message)
         cache[message.peerID] = messages
         try saveToDisk(messages: messages, peerID: message.peerID)
@@ -88,6 +92,24 @@ public final class MessageStore: @unchecked Sendable {
             return []
         }
         return files.map { $0.deletingPathExtension().lastPathComponent }
+    }
+
+    /// Delete all messages whose `expiresAt` timestamp is in the past.
+    /// Called periodically by ChatManager (every 60 s) and on app launch.
+    public func deleteExpiredMessages() {
+        let now = Date()
+        let peerIDs = allConversationPeerIDs()
+        for peerID in peerIDs {
+            guard var messages = try? self.messages(forPeer: peerID) else { continue }
+            let before = messages.count
+            messages.removeAll { msg in
+                guard let exp = msg.expiresAt else { return false }
+                return exp < now
+            }
+            guard messages.count != before else { continue }
+            cache[peerID] = messages
+            try? saveToDisk(messages: messages, peerID: peerID)
+        }
     }
 
     /// Delete all messages for a conversation.
