@@ -1,36 +1,25 @@
 // MeshManager.swift
 // SophaxChatCore
 //
-// P2P mesh networking via Apple MultipeerConnectivity.
-// MultipeerConnectivity automatically uses the best available transport:
-//   • WiFi Direct (peer-to-peer WiFi) — longest range, highest bandwidth
-//   • Bluetooth LE                    — works when WiFi unavailable
-//   • Infrastructure WiFi             — when both peers on same network
+// P2P mesh transport via MultipeerConnectivity (Bluetooth LE + WiFi Direct).
 //
-// Security notes:
-//   • MultipeerConnectivity provides transport-level encryption (TLS 1.3 equivalent)
-//   • This is defense-in-depth; ALL message content is also E2EE via Double Ratchet
-//   • The MCPeerID display name is derived from the identity key hash (not the username)
-//     so it doesn't leak the username at the transport layer
-//   • Connections are accepted automatically — authentication happens at the crypto layer
+// Security:
+//   • encryptionPreference: .required  → TLS-level transport encryption (defence-in-depth)
+//   • MCPeerID display name = first 12 chars of identity key hash (no username at transport layer)
+//   • Authentication happens at the application layer (X3DH + Ed25519 signatures)
+//   • Malformed or undecryptable packets are silently dropped
 
 import Foundation
 @preconcurrency import MultipeerConnectivity
 
-// MARK: - Delegate protocol
+// MARK: - Delegate
 
 public protocol MeshManagerDelegate: AnyObject {
-    /// A new peer was discovered nearby.
     func meshManager(_ manager: MeshManager, didDiscoverPeer peerID: String, withName displayName: String)
-    /// A previously discovered peer went away.
     func meshManager(_ manager: MeshManager, didLosePeer peerID: String)
-    /// A peer connected (session established at transport layer).
     func meshManager(_ manager: MeshManager, didConnectToPeer peerID: String)
-    /// A peer disconnected.
     func meshManager(_ manager: MeshManager, didDisconnectFromPeer peerID: String)
-    /// Received a raw WireMessage from a peer.
     func meshManager(_ manager: MeshManager, didReceiveMessage message: WireMessage, fromPeer peerID: String)
-    /// Failed to send a message.
     func meshManager(_ manager: MeshManager, sendDidFailForPeer peerID: String, error: Error)
 }
 
@@ -38,7 +27,7 @@ public protocol MeshManagerDelegate: AnyObject {
 
 public final class MeshManager: NSObject, @unchecked Sendable {
 
-    // MultipeerConnectivity service type: lowercase, ≤ 15 chars, alphanumeric + hyphens
+    // Lowercase, ≤ 15 chars, [a-z0-9\-] only
     private static let serviceType = "sophax-chat"
 
     private let localPeerID: MCPeerID
@@ -46,11 +35,11 @@ public final class MeshManager: NSObject, @unchecked Sendable {
     private var advertiser: MCNearbyServiceAdvertiser
     private var browser:    MCNearbyServiceBrowser
 
-    /// Maps MC display name → our application-level peerID
+    /// MCPeerID displayName → application-level peerID (learned from Hello messages)
     private var displayNameToPeerID: [String: String] = [:]
-    /// Maps our peerID → MCPeerID
+    /// application-level peerID → MCPeerID
     private var peerIDToMCPeer: [String: MCPeerID] = [:]
-    /// Currently connected MCPeerIDs
+    /// Set of currently connected MCPeerIDs
     private var connectedMCPeers: Set<MCPeerID> = []
 
     private let queue = DispatchQueue(label: "com.sophax.mesh", qos: .userInitiated)
@@ -59,37 +48,25 @@ public final class MeshManager: NSObject, @unchecked Sendable {
 
     // MARK: - Init
 
-    /// - Parameters:
-    ///   - localIdentityHash: First 16 hex characters of the local identity key hash.
-    ///     Used as the MCPeerID display name — does NOT include the username.
     public init(localIdentityHash: String) {
-        // MCPeerID displayName is visible to nearby devices at the transport layer.
-        // We use the identity key hash — not the username — to avoid leaking identity.
-        let mcPeerID = MCPeerID(displayName: "sophax-\(localIdentityHash.prefix(12))")
-        self.localPeerID = mcPeerID
+        let mcID = MCPeerID(displayName: "sx-\(localIdentityHash.prefix(12))")
+        self.localPeerID = mcID
 
-        let session = MCSession(
-            peer: mcPeerID,
-            securityIdentity: nil,           // No TLS certificate pinning; see note below
-            encryptionPreference: .required  // Require transport-layer encryption
+        let sess = MCSession(
+            peer: mcID,
+            securityIdentity: nil,
+            encryptionPreference: .required   // TLS transport encryption required
         )
-        // Note: MCSession's built-in encryption (TLS) prevents passive eavesdropping
-        // at the transport layer. Application-level E2EE (Double Ratchet) is the
-        // primary security mechanism — transport encryption is defense-in-depth.
-
-        self.session = session
+        self.session = sess
         self.advertiser = MCNearbyServiceAdvertiser(
-            peer: mcPeerID,
-            discoveryInfo: ["v": "1"],       // Protocol version — don't leak more info
+            peer: mcID,
+            discoveryInfo: ["v": "1"],        // Protocol version only — no PII
             serviceType: Self.serviceType
         )
-        self.browser = MCNearbyServiceBrowser(
-            peer: mcPeerID,
-            serviceType: Self.serviceType
-        )
-        super.init()
+        self.browser = MCNearbyServiceBrowser(peer: mcID, serviceType: Self.serviceType)
 
-        session.delegate    = self
+        super.init()
+        sess.delegate       = self
         advertiser.delegate = self
         browser.delegate    = self
     }
@@ -109,36 +86,39 @@ public final class MeshManager: NSObject, @unchecked Sendable {
 
     // MARK: - Sending
 
-    /// Send a WireMessage to a specific peer. Reliable, ordered delivery.
+    /// Reliable, ordered delivery to a specific directly-connected peer.
     public func send(_ message: WireMessage, toPeerID peerID: String) throws {
         guard let mcPeer = peerIDToMCPeer[peerID],
               connectedMCPeers.contains(mcPeer) else {
             throw MeshError.peerNotConnected(peerID)
         }
-
         let data = try JSONEncoder().encode(message)
         try session.send(data, toPeers: [mcPeer], with: .reliable)
     }
 
-    /// Send a WireMessage to all connected peers (broadcast).
-    public func broadcast(_ message: WireMessage) throws {
-        guard !connectedMCPeers.isEmpty else { return }
-        let data  = try JSONEncoder().encode(message)
-        let peers = Array(connectedMCPeers)
-        try session.send(data, toPeers: peers, with: .reliable)
+    /// Broadcast to all directly-connected peers, optionally excluding one.
+    /// Used by the relay system to forward envelopes without looping.
+    public func broadcast(_ message: WireMessage, excluding excludedPeerID: String? = nil) throws {
+        let excludedMCPeer: MCPeerID? = excludedPeerID.flatMap { peerIDToMCPeer[$0] }
+        let targets = connectedMCPeers.filter { $0 != excludedMCPeer }
+        guard !targets.isEmpty else { return }
+        let data = try JSONEncoder().encode(message)
+        try session.send(data, toPeers: Array(targets), with: .reliable)
     }
 
-    /// Whether a specific peer is currently connected.
+    /// Whether a specific peer (by peerID) is directly connected.
     public func isConnected(peerID: String) -> Bool {
-        guard let mcPeer = peerIDToMCPeer[peerID] else { return false }
-        return connectedMCPeers.contains(mcPeer)
+        guard let mc = peerIDToMCPeer[peerID] else { return false }
+        return connectedMCPeers.contains(mc)
     }
 
+    /// All directly-connected application-level peerIDs.
     public var connectedPeerIDs: [String] {
-        connectedMCPeers.compactMap { mc in
-            displayNameToPeerID[mc.displayName]
-        }
+        connectedMCPeers.compactMap { displayNameToPeerID[$0.displayName] }
     }
+
+    /// Number of directly connected peers.
+    public var directPeerCount: Int { connectedMCPeers.count }
 }
 
 // MARK: - MCSessionDelegate
@@ -148,22 +128,15 @@ extension MeshManager: MCSessionDelegate {
     public func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         queue.async { [weak self] in
             guard let self else { return }
+            let appID = self.displayNameToPeerID[peerID.displayName] ?? peerID.displayName
             switch state {
             case .connected:
                 self.connectedMCPeers.insert(peerID)
-                let appPeerID = self.displayNameToPeerID[peerID.displayName] ?? peerID.displayName
-                DispatchQueue.main.async {
-                    self.delegate?.meshManager(self, didConnectToPeer: appPeerID)
-                }
+                DispatchQueue.main.async { self.delegate?.meshManager(self, didConnectToPeer: appID) }
             case .notConnected:
                 self.connectedMCPeers.remove(peerID)
-                let appPeerID = self.displayNameToPeerID[peerID.displayName] ?? peerID.displayName
-                DispatchQueue.main.async {
-                    self.delegate?.meshManager(self, didDisconnectFromPeer: appPeerID)
-                }
-            case .connecting:
-                break
-            @unknown default:
+                DispatchQueue.main.async { self.delegate?.meshManager(self, didDisconnectFromPeer: appID) }
+            default:
                 break
             }
         }
@@ -173,12 +146,11 @@ extension MeshManager: MCSessionDelegate {
         queue.async { [weak self] in
             guard let self else { return }
             guard let message = try? JSONDecoder().decode(WireMessage.self, from: data) else {
-                // Malformed message — ignore silently
-                return
+                return   // Malformed — drop silently
             }
-            // Update mapping from MC displayName → app peerID (from message envelope)
+            // Learn/update the mapping from MC display name to application peerID
             self.displayNameToPeerID[peerID.displayName] = message.senderID
-            self.peerIDToMCPeer[message.senderID] = peerID
+            self.peerIDToMCPeer[message.senderID]        = peerID
 
             let senderID = message.senderID
             DispatchQueue.main.async {
@@ -187,25 +159,30 @@ extension MeshManager: MCSessionDelegate {
         }
     }
 
-    // Unused session delegate methods
-    public func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {}
-    public func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {}
-    public func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {}
+    // Unused delegate stubs
+    public func session(_ session: MCSession, didReceive stream: InputStream,
+                        withName streamName: String, fromPeer peerID: MCPeerID) {}
+    public func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String,
+                        fromPeer peerID: MCPeerID, with progress: Progress) {}
+    public func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String,
+                        fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {}
 }
 
 // MARK: - MCNearbyServiceAdvertiserDelegate
 
 extension MeshManager: MCNearbyServiceAdvertiserDelegate {
 
-    public func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
-        // Accept all connections — authentication happens at the application layer (X3DH)
+    public func advertiser(_ advertiser: MCNearbyServiceAdvertiser,
+                           didReceiveInvitationFromPeer peerID: MCPeerID,
+                           withContext context: Data?,
+                           invitationHandler: @escaping (Bool, MCSession?) -> Void) {
+        // Accept all transport connections — cryptographic authentication happens at app layer
         invitationHandler(true, session)
     }
 
     public func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error) {
-        // Log or surface the error in debug builds
         #if DEBUG
-        print("[MeshManager] Advertising failed: \(error)")
+        print("[MeshManager] Advertising error: \(error.localizedDescription)")
         #endif
     }
 }
@@ -214,19 +191,17 @@ extension MeshManager: MCNearbyServiceAdvertiserDelegate {
 
 extension MeshManager: MCNearbyServiceBrowserDelegate {
 
-    public func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String: String]?) {
+    public func browser(_ browser: MCNearbyServiceBrowser,
+                        foundPeer peerID: MCPeerID,
+                        withDiscoveryInfo info: [String: String]?) {
         queue.async { [weak self] in
             guard let self else { return }
-
-            // Invite the peer to connect
             browser.invitePeer(peerID, to: self.session, withContext: nil, timeout: 10)
-
-            let displayName = peerID.displayName
-            // Use display name as a temporary peerID until we receive a Hello message
-            self.peerIDToMCPeer[displayName] = peerID
-
+            // Store temporary mapping (MC display name) until Hello arrives with real peerID
+            self.peerIDToMCPeer[peerID.displayName] = peerID
             DispatchQueue.main.async {
-                self.delegate?.meshManager(self, didDiscoverPeer: displayName, withName: displayName)
+                self.delegate?.meshManager(self, didDiscoverPeer: peerID.displayName,
+                                           withName: peerID.displayName)
             }
         }
     }
@@ -234,19 +209,18 @@ extension MeshManager: MCNearbyServiceBrowserDelegate {
     public func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
         queue.async { [weak self] in
             guard let self else { return }
-            let appPeerID = self.displayNameToPeerID[peerID.displayName] ?? peerID.displayName
-            self.peerIDToMCPeer.removeValue(forKey: appPeerID)
+            let appID = self.displayNameToPeerID[peerID.displayName] ?? peerID.displayName
+            self.peerIDToMCPeer.removeValue(forKey: appID)
             self.displayNameToPeerID.removeValue(forKey: peerID.displayName)
-
             DispatchQueue.main.async {
-                self.delegate?.meshManager(self, didLosePeer: appPeerID)
+                self.delegate?.meshManager(self, didLosePeer: appID)
             }
         }
     }
 
     public func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: Error) {
         #if DEBUG
-        print("[MeshManager] Browsing failed: \(error)")
+        print("[MeshManager] Browse error: \(error.localizedDescription)")
         #endif
     }
 }
@@ -259,8 +233,8 @@ public enum MeshError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .peerNotConnected(let id): return "Peer \(id) is not connected"
-        case .encodingFailed:           return "Failed to encode message for transmission"
+        case .peerNotConnected(let id): "Peer \(id) is not directly connected"
+        case .encodingFailed:           "Message encoding failed"
         }
     }
 }

@@ -3,10 +3,18 @@
 //
 // High-level coordinator — the single entry point for the app layer.
 //
-// Responsibilities:
-//   • Owns the IdentityManager, PreKeyManager, MeshManager, MessageStore
-//   • Orchestrates the full session lifecycle (X3DH → Double Ratchet)
-//   • Dispatches events to the delegate on the main thread
+// Session lifecycle:
+//   1. Peer connects (MPC) → Hello exchanged immediately → PreKeyBundle stored
+//   2. First sendMessage → X3DH sender-side → .initiateSession wire message
+//   3. Subsequent messages → .message wire message (Double Ratchet)
+//   4. Relay: peer not directly connected → wrap in RelayEnvelope, broadcast
+//   5. Offline: no connected peers → queue message, drain on next connect/hello
+//
+// Threading:
+//   All MeshManagerDelegate callbacks are dispatched through an internal
+//   DispatchQueue by MeshManager, then delegate calls are re-dispatched to
+//   main. ChatManager is @unchecked Sendable — the caller must not call
+//   public methods concurrently from different threads.
 
 import Foundation
 import CryptoKit
@@ -14,15 +22,15 @@ import CryptoKit
 // MARK: - Delegate
 
 public protocol ChatManagerDelegate: AnyObject {
-    /// A peer came online.
+    /// A peer came online and their identity has been verified.
     func chatManager(_ manager: ChatManager, didDiscoverPeer peer: KnownPeer)
-    /// A peer went offline.
+    /// A peer is no longer reachable (direct or relay).
     func chatManager(_ manager: ChatManager, peerDidDisconnect peerID: String)
-    /// A new message was received and decrypted.
+    /// A new inbound message was decrypted and stored.
     func chatManager(_ manager: ChatManager, didReceiveMessage message: StoredMessage, fromPeer peerID: String)
-    /// A sent message was acknowledged (delivered).
+    /// A sent message was acknowledged by the recipient.
     func chatManager(_ manager: ChatManager, messageDelivered messageID: String, toPeer peerID: String)
-    /// A non-fatal error occurred.
+    /// A non-fatal error occurred (logged; caller may display or ignore).
     func chatManager(_ manager: ChatManager, didEncounterError error: Error)
 }
 
@@ -39,15 +47,22 @@ public final class ChatManager: @unchecked Sendable {
 
     private let keychain:    KeychainManager
     private let wireBuilder: WireMessageBuilder
+    private let relayRouter: RelayRouter
 
-    // MARK: - Session state
+    // MARK: - State
 
-    /// Active Double Ratchet sessions keyed by peerID.
+    /// Active Double Ratchet sessions keyed by application-level peerID.
     private var sessions: [String: DoubleRatchet] = [:]
-    /// Peers we've received a Hello from (know their bundle).
+
+    /// Peers whose identity we've cryptographically verified, keyed by peerID.
     private var knownPeers: [String: KnownPeer] = [:]
-    /// Peers we've discovered but not yet exchanged Hello with.
-    private var pendingPeers: [String: PreKeyBundle] = [:]
+
+    /// PreKeyBundles keyed by peerID — populated on Hello, used for X3DH initiation.
+    private var peerBundles: [String: PreKeyBundle] = [:]
+
+    /// Outbound messages queued for peers not currently reachable.
+    /// Drained as soon as a path (direct or relay) becomes available.
+    private var pendingQueue: [String: [(wire: WireMessage, messageID: String)]] = [:]
 
     public weak var delegate: ChatManagerDelegate?
 
@@ -66,24 +81,26 @@ public final class ChatManager: @unchecked Sendable {
         self.messageStore = messageStore
         self.keychain     = keychain
         self.wireBuilder  = WireMessageBuilder(identity: identity)
+        self.relayRouter  = RelayRouter()
         mesh.delegate     = self
     }
 
     // MARK: - Public API
 
-    /// Start advertising and browsing on the mesh.
-    public func start() {
-        mesh.start()
-    }
+    /// Start advertising and browsing on the P2P mesh.
+    public func start() { mesh.start() }
 
-    /// Stop the mesh.
-    public func stop() {
-        mesh.stop()
-    }
+    /// Stop the mesh (call on app background / termination).
+    public func stop() { mesh.stop() }
 
-    /// Send a text message to a peer.
-    /// If no session exists yet, initiates X3DH first.
-    public func sendMessage(_ text: String, toPeerID peerID: String) {
+    /// Send a plaintext message to `peerID`.
+    ///
+    /// Handles all cases automatically:
+    ///   - New session: performs X3DH, sends `.initiateSession`
+    ///   - Existing session: sends `.message` (Double Ratchet)
+    ///   - Peer reachable via relay: wraps in `RelayEnvelope`
+    ///   - No connectivity: queues for later delivery
+    public func sendMessage(_ text: String, toPeerID peerID: String, expiresAt: Date? = nil) {
         let messageID = UUID().uuidString
         let stored = StoredMessage(
             id: messageID, peerID: peerID,
@@ -92,152 +109,221 @@ public final class ChatManager: @unchecked Sendable {
         try? messageStore.append(message: stored)
 
         do {
-            let ratchet = try getOrCreateSession(peerID: peerID)
-            let content = MessageContent(body: text)
-            let plaintext = try JSONEncoder().encode(content)
-            let ad = associatedData(peerID: peerID)
-            let ratchetMsg = try ratchet.encrypt(plaintext: plaintext, associatedData: ad)
-
-            // Persist updated session state
-            try persistSession(ratchet, peerID: peerID)
-
-            let payload = ChatMessagePayload(ratchetMessage: ratchetMsg, messageID: messageID)
-            let wire    = try wireBuilder.build(.message, payload: payload)
-            try mesh.send(wire, toPeerID: peerID)
+            let wire = try buildOutboundWire(
+                text: text, messageID: messageID,
+                toPeerID: peerID, expiresAt: expiresAt
+            )
+            try sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
         } catch {
             try? messageStore.updateStatus(.failed, forMessageID: messageID, peerID: peerID)
             delegate?.chatManager(self, didEncounterError: error)
         }
     }
 
-    /// All messages for a conversation, sorted oldest first.
+    /// All stored messages for a conversation, oldest-first.
     public func messages(forPeer peerID: String) -> [StoredMessage] {
         (try? messageStore.messages(forPeer: peerID)) ?? []
     }
 
-    /// All known peers with conversation history.
+    /// All peers with a verified identity (online or offline).
     public func allPeers() -> [KnownPeer] {
         Array(knownPeers.values)
     }
 
-    // MARK: - Private: Session management
+    // MARK: - Private: Build outbound wire message
 
-    private func getOrCreateSession(peerID: String) throws -> DoubleRatchet {
-        if let existing = sessions[peerID] { return existing }
+    /// Constructs the correct WireMessage for the given peer.
+    ///
+    /// - If a session already exists (memory or Keychain): returns `.message`
+    /// - If no session but bundle known: performs X3DH, returns `.initiateSession`
+    /// - If no bundle yet: throws `sessionNotInitialized` (caller queues the message)
+    private func buildOutboundWire(
+        text: String, messageID: String,
+        toPeerID peerID: String, expiresAt: Date?
+    ) throws -> WireMessage {
+        let content   = MessageContent(body: text, expiresAt: expiresAt)
+        let plaintext = try JSONEncoder().encode(content)
+        let ad        = associatedData(peerID: peerID)
 
-        // Try loading from Keychain
-        if let stateData = try? keychain.loadSessionState(peerID: peerID),
-           let ratchet = try? DoubleRatchet.importState(stateData) {
-            sessions[peerID] = ratchet
-            return ratchet
+        // ── Case 1: existing session ──────────────────────────────────────────
+        if let ratchet = loadSession(peerID: peerID) {
+            let ratchetMsg = try ratchet.encrypt(plaintext: plaintext, associatedData: ad)
+            try persistSession(ratchet, peerID: peerID)
+            let payload = ChatMessagePayload(ratchetMessage: ratchetMsg, messageID: messageID)
+            return try wireBuilder.build(.message, payload: payload)
         }
 
-        // Need to initiate a new session
-        guard let peer = knownPeers[peerID] else {
+        // ── Case 2: new session — need peer's PreKeyBundle for X3DH ──────────
+        guard let bundle = peerBundles[peerID] else {
+            // Bundle not yet received — caller should queue and retry after Hello
             throw SophaxError.sessionNotInitialized
         }
-        return try initiateSession(with: peer)
-    }
 
-    private func initiateSession(with peer: KnownPeer) throws -> DoubleRatchet {
-        guard let bundle = pendingPeers[peer.id] else {
-            throw SophaxError.sessionNotInitialized
-        }
-
-        // X3DH sender side
+        // X3DH: Alice (sender) side
         let x3dhResult = try X3DH.initiateSender(
-            senderIdentity: identity.dhKeyPair,
+            senderIdentity:  identity.dhKeyPair,
             recipientBundle: bundle
         )
 
-        // Double Ratchet init as initiator
+        // Double Ratchet: Alice starts as initiator
         let ratchet = try DoubleRatchet.initAsInitiator(
-            sharedSecret: x3dhResult.sharedSecret,
+            sharedSecret:           x3dhResult.sharedSecret,
             remoteRatchetPublicKey: bundle.signedPreKeyPublic
         )
+        sessions[peerID] = ratchet
 
-        sessions[peer.id] = ratchet
-        try persistSession(ratchet, peerID: peer.id)
+        // Encrypt the first message inside the session initiation envelope
+        let ratchetMsg   = try ratchet.encrypt(plaintext: plaintext, associatedData: ad)
+        try persistSession(ratchet, peerID: peerID)
+
+        // Alice's own bundle (Bob needs it to verify the X3DH and future messages)
+        let senderBundle = try preKeys.generateBundle()
+        let initPayload  = InitiateSessionMessage(
+            senderBundle:        senderBundle,
+            ephemeralPublicKey:  x3dhResult.ephemeralPublicKey,
+            usedSignedPreKeyId:  bundle.signedPreKeyId,
+            usedOneTimePreKeyId: x3dhResult.usedOneTimePreKeyId,
+            initialMessage:      ratchetMsg
+        )
+        return try wireBuilder.build(.initiateSession, payload: initPayload)
+    }
+
+    // MARK: - Private: Routing
+
+    /// Send a wire message: direct → relay → offline queue (in priority order).
+    private func sendOrQueue(
+        _ wire: WireMessage,
+        toPeerID peerID: String,
+        messageID: String
+    ) throws {
+        if mesh.isConnected(peerID: peerID) {
+            // ── Direct path ───────────────────────────────────────────────────
+            try mesh.send(wire, toPeerID: peerID)
+
+        } else if mesh.directPeerCount > 0 {
+            // ── Multihop relay: flood to all connected peers ──────────────────
+            let envelope = RelayEnvelope(
+                id:           UUID().uuidString,
+                targetPeerID: peerID,
+                originPeerID: identity.publicIdentity.peerID,
+                ttl:          RelayEnvelope.maxTTL,
+                hopCount:     0,
+                message:      wire
+            )
+            let relayWire = try wireBuilder.build(.relay, payload: envelope)
+            try mesh.broadcast(relayWire)
+
+        } else {
+            // ── No connectivity: queue for later ──────────────────────────────
+            pendingQueue[peerID, default: []].append((wire: wire, messageID: messageID))
+        }
+    }
+
+    /// Drain queued messages for a peer that just became reachable.
+    private func drainQueue(forPeerID peerID: String) {
+        guard let queued = pendingQueue.removeValue(forKey: peerID),
+              !queued.isEmpty else { return }
+        for item in queued {
+            do {
+                try sendOrQueue(item.wire, toPeerID: peerID, messageID: item.messageID)
+            } catch {
+                try? messageStore.updateStatus(.failed, forMessageID: item.messageID, peerID: peerID)
+            }
+        }
+    }
+
+    // MARK: - Private: Session management
+
+    /// Returns an existing session from memory, falling back to Keychain.
+    private func loadSession(peerID: String) -> DoubleRatchet? {
+        if let existing = sessions[peerID] { return existing }
+        guard let data   = try? keychain.loadSessionState(peerID: peerID),
+              let ratchet = try? DoubleRatchet.importState(data) else { return nil }
+        sessions[peerID] = ratchet
         return ratchet
     }
 
+    /// Persist the ratchet state to both memory and Keychain.
     private func persistSession(_ ratchet: DoubleRatchet, peerID: String) throws {
-        let stateData = try ratchet.exportState()
-        try keychain.saveSessionState(data: stateData, peerID: peerID)
+        sessions[peerID] = ratchet
+        try keychain.saveSessionState(data: ratchet.exportState(), peerID: peerID)
     }
 
-    // MARK: - Private: Message handling
+    // MARK: - Private: Message handlers
 
-    private func handleHello(_ payload: HelloMessage, fromPeer peerID: String) throws {
+    private func handleHello(_ payload: HelloMessage) throws {
         let bundle = payload.bundle
 
-        // Verify signature
         guard try bundle.verifySignedPreKey() else {
             throw SophaxError.invalidSignature
         }
-
-        // Verify bundle freshness
         guard abs(bundle.timestamp.timeIntervalSinceNow) < CryptoConstants.maxPreKeyBundleAge else {
             throw SophaxError.stalePreKeyBundle
         }
 
+        let peerID       = bundle.peerID
         let safetyNumber = generateSafetyNumber(for: bundle)
-        let peer = KnownPeer(from: bundle, safetyNumber: safetyNumber)
-        knownPeers[peer.id] = peer
-        pendingPeers[peer.id] = bundle
+        let peer         = KnownPeer(from: bundle, safetyNumber: safetyNumber)
+        knownPeers[peerID]  = peer
+        peerBundles[peerID] = bundle
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.chatManager(self, didDiscoverPeer: peer)
         }
+
+        // Peer's bundle is now known — drain any messages queued before Hello arrived
+        drainQueue(forPeerID: peerID)
     }
 
-    private func handleInitiateSession(_ payload: InitiateSessionMessage, fromPeer mcPeerID: String) throws {
+    private func handleInitiateSession(_ payload: InitiateSessionMessage) throws {
         let senderBundle = payload.senderBundle
-
-        // Verify sender's signed prekey
         guard try senderBundle.verifySignedPreKey() else {
             throw SophaxError.invalidSignature
         }
 
         let peerID = senderBundle.peerID
+        peerBundles[peerID] = senderBundle
 
-        // Retrieve the one-time prekey if Alice used one
+        // Retrieve and consume the one-time prekey if Alice used one
         let otpk = payload.usedOneTimePreKeyId.flatMap { preKeys.consumeOneTimePreKey(id: $0) }
 
-        // X3DH receiver side
+        // X3DH: Bob (responder) side — produces the same shared secret as Alice
         let sharedSecret = try X3DH.initiateReceiver(
-            recipientIdentityDH:      identity.dhKeyPair,
-            recipientSignedPreKey:    preKeys.signedPreKeyPair,
-            recipientOneTimePreKey:   otpk,
-            senderIdentityDHKeyData:  senderBundle.dhIdentityKeyPublic,
-            senderEphemeralKeyData:   payload.ephemeralPublicKey
+            recipientIdentityDH:     identity.dhKeyPair,
+            recipientSignedPreKey:   preKeys.signedPreKeyPair,
+            recipientOneTimePreKey:  otpk,
+            senderIdentityDHKeyData: senderBundle.dhIdentityKeyPublic,
+            senderEphemeralKeyData:  payload.ephemeralPublicKey
         )
 
-        // Double Ratchet init as responder (Bob)
+        // Double Ratchet: Bob starts as responder
         let ratchet = try DoubleRatchet.initAsResponder(
-            sharedSecret: sharedSecret,
+            sharedSecret:      sharedSecret,
             ownRatchetKeyPair: preKeys.signedPreKeyPair
         )
 
-        // Decrypt the first message
-        let ad       = associatedData(peerID: peerID)
+        // Decrypt the initial message (Alice's first plaintext)
+        let ad        = associatedData(peerID: peerID)
         let plaintext = try ratchet.decrypt(message: payload.initialMessage, associatedData: ad)
         let content   = try JSONDecoder().decode(MessageContent.self, from: plaintext)
 
-        sessions[peerID] = ratchet
         try persistSession(ratchet, peerID: peerID)
 
-        // Store as received message
+        // Register the peer
+        let safetyNumber = generateSafetyNumber(for: senderBundle)
+        var peer = KnownPeer(from: senderBundle, safetyNumber: safetyNumber)
+        peer.isDirectlyConnected = mesh.isConnected(peerID: peerID)
+        knownPeers[peerID] = peer
+
         let stored = StoredMessage(
-            peerID: peerID, direction: .received, body: content.body, status: .delivered
+            peerID:    peerID,
+            direction: .received,
+            body:      content.body,
+            status:    .delivered,
+            expiresAt: content.expiresAt
         )
         try messageStore.append(message: stored)
-
-        // Update known peers
-        let safetyNumber = generateSafetyNumber(for: senderBundle)
-        let peer = KnownPeer(from: senderBundle, safetyNumber: safetyNumber)
-        knownPeers[peerID] = peer
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -245,27 +331,36 @@ public final class ChatManager: @unchecked Sendable {
         }
     }
 
-    private func handleChatMessage(_ payload: ChatMessagePayload, fromPeer peerID: String) throws {
-        guard let ratchet = sessions[peerID] else {
+    private func handleChatMessage(
+        _ payload: ChatMessagePayload,
+        fromPeer peerID: String,
+        hopCount: UInt8? = nil
+    ) throws {
+        guard let ratchet = loadSession(peerID: peerID) else {
             throw SophaxError.sessionNotInitialized
         }
 
-        let ad = associatedData(peerID: peerID)
+        let ad        = associatedData(peerID: peerID)
         let plaintext = try ratchet.decrypt(message: payload.ratchetMessage, associatedData: ad)
         let content   = try JSONDecoder().decode(MessageContent.self, from: plaintext)
 
         try persistSession(ratchet, peerID: peerID)
 
         let stored = StoredMessage(
-            id: payload.messageID, peerID: peerID,
-            direction: .received, body: content.body, status: .delivered
+            id:        payload.messageID,
+            peerID:    peerID,
+            direction: .received,
+            body:      content.body,
+            status:    .delivered,
+            expiresAt: content.expiresAt,
+            hopCount:  hopCount
         )
         try messageStore.append(message: stored)
 
-        // Send ACK
+        // Acknowledge delivery
         let ack = AckMessage(messageID: payload.messageID, status: .delivered)
         if let wire = try? wireBuilder.build(.ack, payload: ack) {
-            try? mesh.send(wire, toPeerID: peerID)
+            try? sendOrQueue(wire, toPeerID: peerID, messageID: payload.messageID)
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -282,19 +377,82 @@ public final class ChatManager: @unchecked Sendable {
         }
     }
 
+    /// Handle a RelayEnvelope arriving from a directly-connected peer.
+    private func handleRelay(_ envelope: RelayEnvelope, fromRelayPeer relayPeerID: String) throws {
+        let myPeerID = identity.publicIdentity.peerID
+
+        if envelope.targetPeerID == myPeerID {
+            // ── Destination reached — process the inner message ───────────────
+            let inner = envelope.message
+
+            // Verify inner message signature if we know the original sender
+            if let peer = knownPeers[inner.senderID] {
+                guard (try? WireMessageBuilder.verify(
+                    inner, signingKeyPublic: peer.signingKeyPublic
+                )) == true else {
+                    return   // Bad signature on inner message — drop silently
+                }
+            }
+
+            try processRelayedInnerMessage(inner, hopCount: envelope.hopCount)
+
+        } else {
+            // ── Not for me — check dedup cache and forward if still alive ─────
+            guard relayRouter.shouldProcess(envelope) else { return }
+
+            let forwarded = envelope.forwarded()
+            let relayWire = try wireBuilder.build(.relay, payload: forwarded)
+            // Exclude the peer who sent us this envelope to avoid looping
+            try mesh.broadcast(relayWire, excluding: relayPeerID)
+        }
+    }
+
+    /// Dispatch a WireMessage that arrived via the relay system.
+    private func processRelayedInnerMessage(_ message: WireMessage, hopCount: UInt8) throws {
+        switch message.type {
+
+        case .hello:
+            let payload = try wireBuilder.decodePayload(HelloMessage.self, from: message)
+            // Verify using the signing key that's inside the bundle itself
+            guard try WireMessageBuilder.verify(
+                message, signingKeyPublic: payload.bundle.signingKeyPublic
+            ) else { throw SophaxError.invalidSignature }
+            try handleHello(payload)
+
+        case .initiateSession:
+            let payload = try wireBuilder.decodePayload(InitiateSessionMessage.self, from: message)
+            try handleInitiateSession(payload)
+
+        case .message:
+            let payload = try wireBuilder.decodePayload(ChatMessagePayload.self, from: message)
+            try handleChatMessage(payload, fromPeer: message.senderID, hopCount: hopCount)
+
+        case .ack:
+            let payload = try wireBuilder.decodePayload(AckMessage.self, from: message)
+            handleAck(payload, fromPeer: message.senderID)
+
+        case .relay, .typing:
+            break   // No relay-of-relay; typing over relay has no value
+        }
+    }
+
     // MARK: - Private: Helpers
 
-    /// Associated data for Double Ratchet operations.
-    /// Binds the session to the specific pair of identities — prevents session hijacking.
+    /// Associated data for Double Ratchet AEAD operations.
+    /// Binds the session cryptographically to the specific pair of identities.
+    /// The IDs are sorted so the value is the same on both sides regardless of
+    /// who initiated the session.
     private func associatedData(peerID: String) -> Data {
-        let localID = identity.publicIdentity.peerID
+        let localID   = identity.publicIdentity.peerID
         let sortedIDs = [localID, peerID].sorted()
         return Data((sortedIDs.joined() + CryptoConstants.appVersion).utf8)
     }
 
+    /// 60-digit safety number (12 groups of 5 digits) for out-of-band
+    /// identity verification, derived from SHA-512 of both identity keys.
     private func generateSafetyNumber(for bundle: PreKeyBundle) -> String {
         let combined = bundle.signingKeyPublic + bundle.dhIdentityKeyPublic
-        let hash = SHA512.hash(data: combined)
+        let hash     = SHA512.hash(data: combined)
         let hashData = Data(hash)
         var groups: [String] = []
         for i in stride(from: 0, to: 30, by: 5) {
@@ -310,69 +468,77 @@ public final class ChatManager: @unchecked Sendable {
 
 extension ChatManager: MeshManagerDelegate {
 
-    public func meshManager(_ manager: MeshManager, didDiscoverPeer peerID: String, withName displayName: String) {
-        // Nothing — wait for the Hello message to learn their crypto identity
+    public func meshManager(
+        _ manager: MeshManager, didDiscoverPeer peerID: String, withName displayName: String
+    ) {
+        // Nothing yet — wait for the Hello message to learn their crypto identity
     }
 
     public func meshManager(_ manager: MeshManager, didLosePeer peerID: String) {
-        knownPeers[peerID]?.isOnline = false
+        knownPeers[peerID]?.isOnline            = false
+        knownPeers[peerID]?.isDirectlyConnected = false
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.chatManager(self, peerDidDisconnect: peerID)
         }
     }
 
-    public func meshManager(_ manager: MeshManager, didConnectToPeer peerID: String) {
-        // Send our Hello (prekey bundle) immediately on connection
+    public func meshManager(_ manager: MeshManager, didConnectToPeer mcPeerID: String) {
+        // Send our PreKeyBundle immediately so the peer can initiate X3DH
         Task {
             do {
-                let bundle  = try preKeys.generateBundle()
-                let hello   = HelloMessage(bundle: bundle)
-                let wire    = try wireBuilder.build(.hello, payload: hello)
-                try mesh.send(wire, toPeerID: peerID)
+                let bundle = try preKeys.generateBundle()
+                let hello  = HelloMessage(bundle: bundle)
+                let wire   = try wireBuilder.build(.hello, payload: hello)
+                try mesh.send(wire, toPeerID: mcPeerID)
             } catch {
                 delegate?.chatManager(self, didEncounterError: error)
             }
         }
+        // Note: drainQueue is called from handleHello once the peer's real peerID is known
     }
 
     public func meshManager(_ manager: MeshManager, didDisconnectFromPeer peerID: String) {
-        knownPeers[peerID]?.isOnline = false
+        knownPeers[peerID]?.isOnline            = false
+        knownPeers[peerID]?.isDirectlyConnected = false
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.chatManager(self, peerDidDisconnect: peerID)
         }
     }
 
-    public func meshManager(_ manager: MeshManager, didReceiveMessage message: WireMessage, fromPeer peerID: String) {
-        // Verify signature if we know the peer's signing key
-        if let peer = knownPeers[message.senderID] {
-            guard (try? WireMessageBuilder.verify(message, signingKeyPublic: peer.signingKeyPublic)) == true else {
-                #if DEBUG
-                print("[ChatManager] Signature verification failed for message from \(peerID)")
-                #endif
-                return
+    public func meshManager(
+        _ manager: MeshManager, didReceiveMessage message: WireMessage, fromPeer mcPeerID: String
+    ) {
+        // Verify Ed25519 signature for known peers.
+        // For Hello messages the bundle contains the signing key — verified inside handleHello.
+        if message.type != .hello {
+            if let peer = knownPeers[message.senderID] {
+                guard (try? WireMessageBuilder.verify(
+                    message, signingKeyPublic: peer.signingKeyPublic
+                )) == true else {
+                    #if DEBUG
+                    print("[ChatManager] ⚠️ Sig fail: type=\(message.type.rawValue) sender=\(message.senderID.prefix(8))")
+                    #endif
+                    return
+                }
             }
         }
-        // (For Hello messages from unknown peers, we verify after decoding the bundle)
 
         do {
             switch message.type {
+
             case .hello:
                 let payload = try wireBuilder.decodePayload(HelloMessage.self, from: message)
-                // Verify bundle signature covers the signing key we just received
-                guard try WireMessageBuilder.verify(message, signingKeyPublic: payload.bundle.signingKeyPublic) else {
-                    throw SophaxError.invalidSignature
-                }
-                try handleHello(payload, fromPeer: peerID)
+                // Self-verifying: use the key inside the bundle
+                guard try WireMessageBuilder.verify(
+                    message, signingKeyPublic: payload.bundle.signingKeyPublic
+                ) else { throw SophaxError.invalidSignature }
+                try handleHello(payload)
 
             case .initiateSession:
                 let payload = try wireBuilder.decodePayload(InitiateSessionMessage.self, from: message)
-                try handleInitiateSession(payload, fromPeer: peerID)
-
-            case .sessionAck:
-                let payload = try wireBuilder.decodePayload(ChatMessagePayload.self, from: message)
-                try handleChatMessage(payload, fromPeer: message.senderID)
+                try handleInitiateSession(payload)
 
             case .message:
                 let payload = try wireBuilder.decodePayload(ChatMessagePayload.self, from: message)
@@ -382,18 +548,24 @@ extension ChatManager: MeshManagerDelegate {
                 let payload = try wireBuilder.decodePayload(AckMessage.self, from: message)
                 handleAck(payload, fromPeer: message.senderID)
 
+            case .relay:
+                let envelope = try wireBuilder.decodePayload(RelayEnvelope.self, from: message)
+                try handleRelay(envelope, fromRelayPeer: message.senderID)
+
             case .typing:
-                break   // Handle typing indicators in UI layer if desired
+                break
             }
         } catch {
             #if DEBUG
-            print("[ChatManager] Error processing message: \(error)")
+            print("[ChatManager] ❌ Error: \(error) | type=\(message.type.rawValue)")
             #endif
             delegate?.chatManager(self, didEncounterError: error)
         }
     }
 
-    public func meshManager(_ manager: MeshManager, sendDidFailForPeer peerID: String, error: Error) {
+    public func meshManager(
+        _ manager: MeshManager, sendDidFailForPeer peerID: String, error: Error
+    ) {
         delegate?.chatManager(self, didEncounterError: error)
     }
 }

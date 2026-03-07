@@ -2,28 +2,29 @@
 // SophaxChatCore
 //
 // All messages exchanged over the P2P mesh network.
-// Messages are JSON-encoded and transported via MultipeerConnectivity.
 //
 // Protocol flow:
 //
 //   [Discovery]
-//     Alice discovers Bob via MCNearbyServiceBrowser.
+//     Peers discover each other via MCNearbyServiceBrowser.
 //
-//   [Handshake]
-//     Alice → Bob: .hello  (Alice's PreKeyBundle)
-//     Bob → Alice: .hello  (Bob's PreKeyBundle)
+//   [Handshake — immediately on MPC connection]
+//     A → B: .hello  (A's PreKeyBundle)
+//     B → A: .hello  (B's PreKeyBundle)
 //
-//   [Session Initiation - Alice wants to message Bob]
-//     Alice → Bob: .initiateSession  (EK_A, used OPK id, first encrypted message)
+//   [Session Initiation — A sends first encrypted message to B]
+//     A → B: .initiateSession  (EK_A, used prekey IDs, first Double Ratchet message)
 //
-//   [Session Acceptance - Bob processes X3DH and replies]
-//     Bob → Alice: .sessionAck + first Double Ratchet message
-//
-//   [Normal messages]
-//     Alice ↔ Bob: .message  (Double Ratchet encrypted)
+//   [Normal messages — after session established]
+//     A ↔ B: .message  (Double Ratchet encrypted)
 //
 //   [Delivery confirmation]
-//     Bob → Alice: .ack
+//     B → A: .ack
+//
+//   [Multihop relay — A and B not directly connected]
+//     A → C: .relay (RelayEnvelope targeting B, TTL=5)
+//     C → B: .relay (RelayEnvelope, TTL=4)   [C forwards after checking target]
+//     B processes the inner message
 
 import Foundation
 import CryptoKit
@@ -31,116 +32,165 @@ import CryptoKit
 // MARK: - Wire Message Envelope
 
 /// Top-level wrapper for all network messages.
-/// The envelope contains the message type discriminator and the payload.
-/// The payload is itself encrypted except for handshake messages.
+/// Every WireMessage is signed with the sender's Ed25519 identity key.
 public struct WireMessage: Codable, Sendable {
     public let type:      WireMessageType
     public let payload:   Data        // JSON-encoded inner message
-    public let senderID:  String      // Sender's peerID (hash of identity keys)
-    public let timestamp: Date
-    /// Ed25519 signature of (type.rawValue + payload + senderID + timestamp ISO8601)
-    public let signature: Data
+    public let senderID:  String      // Sender's peerID (deterministic hash of identity keys)
+    public let timestamp: Date        // Fixed at build time — same value in signingBytes()
+    public let signature: Data        // Ed25519(type || payload || senderID || timestamp)
 
-    public init(type: WireMessageType, payload: Data, senderID: String, signature: Data) {
+    /// Use WireMessageBuilder.build() to construct — do NOT call directly.
+    /// The timestamp parameter must be passed by the builder so signing bytes
+    /// and the final message share the EXACT SAME timestamp.
+    public init(
+        type:      WireMessageType,
+        payload:   Data,
+        senderID:  String,
+        timestamp: Date,              // ← explicit, not Date() here
+        signature: Data
+    ) {
         self.type      = type
         self.payload   = payload
         self.senderID  = senderID
-        self.timestamp = Date()
+        self.timestamp = timestamp
         self.signature = signature
     }
 
-    /// Returns the bytes to sign/verify.
-    public func signingBytes() throws -> Data {
+    /// Canonical byte representation that is signed/verified.
+    /// MUST be deterministic — no Date() call here.
+    public func signingBytes() -> Data {
         var data = Data()
         data.append(contentsOf: type.rawValue.utf8)
         data.append(payload)
         data.append(contentsOf: senderID.utf8)
-        let iso = ISO8601DateFormatter().string(from: timestamp)
-        data.append(contentsOf: iso.utf8)
+        // ISO 8601 is deterministic for a fixed Date value
+        data.append(contentsOf: ISO8601DateFormatter().string(from: timestamp).utf8)
         return data
     }
 }
 
+// MARK: - Message Types
+
 public enum WireMessageType: String, Codable, Sendable {
     /// Initial handshake — contains the sender's PreKeyBundle.
     case hello
-    /// Initiates a new encrypted session (X3DH initiation).
+    /// X3DH session initiation — contains EK_A and the first Double Ratchet message.
     case initiateSession
-    /// Acknowledges session initiation; contains a Double Ratchet message.
-    case sessionAck
-    /// Normal encrypted chat message.
+    /// Normal Double Ratchet–encrypted message.
     case message
     /// Delivery acknowledgment.
     case ack
-    /// Typing indicator (unencrypted, optional).
+    /// Relay envelope for multihop delivery.
+    case relay
+    /// Typing indicator (unencrypted, metadata-only).
     case typing
 }
 
 // MARK: - Hello (Handshake)
 
-/// Sent immediately after connecting to a peer.
-/// Contains the sender's full PreKeyBundle.
+/// Sent immediately after an MPC connection is established.
+/// Contains the sender's full PreKeyBundle so the recipient can initiate X3DH.
 public struct HelloMessage: Codable, Sendable {
     public let bundle: PreKeyBundle
 }
 
-// MARK: - Initiate Session (X3DH)
+// MARK: - Session Initiation (X3DH)
 
 /// Sent by Alice to initiate a new encrypted session with Bob.
-/// Contains everything Bob needs to compute the shared secret and decrypt the message.
+/// Contains everything Bob needs to:
+///   1. Reproduce the X3DH shared secret
+///   2. Initialise the Double Ratchet as responder
+///   3. Decrypt the first message
 public struct InitiateSessionMessage: Codable, Sendable {
-    /// Alice's full identity (so Bob can validate and respond).
-    public let senderBundle: PreKeyBundle
-
+    /// Alice's full PreKeyBundle — Bob stores this for future verification.
+    public let senderBundle:        PreKeyBundle
     /// Alice's ephemeral public key (EK_A) from X3DH.
-    public let ephemeralPublicKey: Data
-
-    /// Which of Bob's signed prekey Alice used (so Bob knows which SPK to use).
-    public let usedSignedPreKeyId: UInt32
-
-    /// Which of Bob's one-time prekeys Alice used (so Bob can consume it).
+    public let ephemeralPublicKey:  Data
+    /// Which of Bob's signed prekeys Alice used.
+    public let usedSignedPreKeyId:  UInt32
+    /// Which of Bob's one-time prekeys Alice used (nil if none available).
     public let usedOneTimePreKeyId: UInt32?
-
-    /// The first Double Ratchet encrypted message, nested inside.
-    public let initialMessage: RatchetMessage
+    /// First Double Ratchet encrypted message.
+    public let initialMessage:      RatchetMessage
 }
 
-// MARK: - Chat Message
+// MARK: - Chat Message Payload
 
-/// A regular Double Ratchet–encrypted message.
+/// Carries a Double Ratchet–encrypted message after session establishment.
 public struct ChatMessagePayload: Codable, Sendable {
-    /// The Double Ratchet encrypted content.
     public let ratchetMessage: RatchetMessage
-    /// Unique message ID (UUID) — used for deduplication and ACKs.
-    public let messageID: String
-    /// Encrypted message metadata (type, reply-to, etc.) — inside the ratchet plaintext.
-    /// We store this separately for UI use after decryption.
+    /// Stable UUID for deduplication and ACK correlation.
+    public let messageID:      String
 }
 
-/// The decrypted plaintext content of a chat message.
-/// This struct is what's actually encrypted inside the Double Ratchet.
+/// Plaintext content encrypted inside the Double Ratchet ciphertext.
+/// This is the ONLY place where message text lives unencrypted — in memory during processing.
 public struct MessageContent: Codable, Sendable {
-    public let body:      String
-    public let type:      MessageType
-    public let replyToID: String?      // Message ID of the message being replied to
-    public let timestamp: Date
+    public let body:        String
+    public let type:        MessageType
+    public let replyToID:   String?
+    public let timestamp:   Date
+    /// nil = persistent; Date = auto-delete after this point
+    public let expiresAt:   Date?
 
     public enum MessageType: String, Codable, Sendable {
         case text
-        // Future: image, file, location, etc.
     }
 
-    public init(body: String, type: MessageType = .text, replyToID: String? = nil) {
+    public init(
+        body:      String,
+        type:      MessageType = .text,
+        replyToID: String? = nil,
+        expiresAt: Date? = nil
+    ) {
         self.body      = body
         self.type      = type
         self.replyToID = replyToID
         self.timestamp = Date()
+        self.expiresAt = expiresAt
+    }
+}
+
+// MARK: - Multihop Relay
+
+/// Wraps any WireMessage for relay delivery through intermediate peers.
+///
+/// Flow:
+///   Alice → Charlie: RelayEnvelope(target=Bob, ttl=5, message=chatMsg)
+///   Charlie checks: Am I Bob? No → decrement TTL → forward to all peers except Alice
+///   Bob receives:   Am I Bob? Yes → process inner message
+public struct RelayEnvelope: Codable, Sendable {
+    /// UUID — relay nodes use this to deduplicate (drop already-seen envelopes).
+    public let id:           String
+    /// Final destination peerID.
+    public let targetPeerID: String
+    /// Original sender peerID (for reply routing).
+    public let originPeerID: String
+    /// Decremented at every hop; dropped when it reaches 0.
+    public let ttl:          UInt8
+    /// Number of hops already taken (for UI display and analytics).
+    public let hopCount:     UInt8
+    /// The actual message for the target peer.
+    public let message:      WireMessage
+
+    public static let maxTTL: UInt8 = 6
+
+    /// Returns a new envelope with TTL decremented and hopCount incremented.
+    public func forwarded() -> RelayEnvelope {
+        RelayEnvelope(
+            id:           id,
+            targetPeerID: targetPeerID,
+            originPeerID: originPeerID,
+            ttl:          ttl > 0 ? ttl - 1 : 0,
+            hopCount:     hopCount + 1,
+            message:      message
+        )
     }
 }
 
 // MARK: - Ack
 
-/// Delivery acknowledgment. Sent back to the sender after decrypting a message.
 public struct AckMessage: Codable, Sendable {
     public let messageID: String
     public let status:    AckStatus
@@ -151,7 +201,7 @@ public struct AckMessage: Codable, Sendable {
     }
 }
 
-// MARK: - Typing Indicator
+// MARK: - Typing
 
 public struct TypingMessage: Codable, Sendable {
     public let isTyping: Bool
@@ -159,6 +209,7 @@ public struct TypingMessage: Codable, Sendable {
 
 // MARK: - WireMessage Builder
 
+/// Creates and verifies signed WireMessages.
 public struct WireMessageBuilder {
     private let identity: IdentityManager
 
@@ -166,26 +217,35 @@ public struct WireMessageBuilder {
         self.identity = identity
     }
 
+    /// Build a signed WireMessage.
+    /// Uses a single `Date()` snapshot so signing bytes and the final
+    /// message carry the SAME timestamp — avoiding the previous bug where
+    /// two separate `init` calls produced two different timestamps.
     public func build<T: Codable>(_ type: WireMessageType, payload: T) throws -> WireMessage {
         let payloadData = try JSONEncoder().encode(payload)
         let senderID    = identity.publicIdentity.peerID
+        let timestamp   = Date()   // ← captured ONCE
 
-        var envelope = WireMessage(type: type, payload: payloadData, senderID: senderID, signature: Data())
+        // Construct unsigned message to compute the canonical bytes to sign
+        let unsigned = WireMessage(
+            type: type, payload: payloadData,
+            senderID: senderID, timestamp: timestamp, signature: Data()
+        )
+        let signature = try identity.sign(unsigned.signingBytes())
 
-        // Sign the envelope
-        let bytesToSign = try envelope.signingBytes()
-        let signature   = try identity.sign(bytesToSign)
-
-        // Rebuild with signature
-        return WireMessage(type: type, payload: payloadData, senderID: senderID, signature: signature)
+        // Return the final message with the same timestamp
+        return WireMessage(
+            type: type, payload: payloadData,
+            senderID: senderID, timestamp: timestamp, signature: signature
+        )
     }
 
-    /// Verify the signature on a received WireMessage.
+    /// Verify the Ed25519 signature on a received WireMessage.
     public static func verify(_ message: WireMessage, signingKeyPublic: Data) throws -> Bool {
-        let bytesToVerify = try message.signingBytes()
+        let bytes = message.signingBytes()
         return try IdentityManager.verify(
             signature: message.signature,
-            for: bytesToVerify,
+            for: bytes,
             signingKeyPublic: signingKeyPublic
         )
     }
@@ -195,27 +255,27 @@ public struct WireMessageBuilder {
     }
 }
 
-// MARK: - Stored Message (local model)
+// MARK: - Stored Message
 
-/// A message stored locally in the chat history.
+/// A message persisted in the local encrypted store.
 public struct StoredMessage: Codable, Identifiable, Sendable {
-    public let id:           String    // UUID
-    public let peerID:       String    // Conversation partner's peerID
-    public let direction:    Direction
-    public let body:         String
-    public let timestamp:    Date
-    public var status:       MessageStatus
-    public let replyToID:    String?
+    public let id:        String
+    public let peerID:    String
+    public let direction: Direction
+    public let body:      String
+    public let timestamp: Date
+    public var status:    MessageStatus
+    public let replyToID: String?
+    public let expiresAt: Date?
+    /// Nil = delivered directly; >0 = relayed through N hops
+    public let hopCount:  UInt8?
 
     public enum Direction: String, Codable, Sendable {
-        case sent
-        case received
+        case sent, received
     }
 
     public enum MessageStatus: String, Codable, Sendable {
-        case sending
-        case delivered
-        case failed
+        case sending, delivered, failed
     }
 
     public init(
@@ -225,7 +285,9 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
         body:      String,
         timestamp: Date = Date(),
         status:    MessageStatus = .sending,
-        replyToID: String? = nil
+        replyToID: String? = nil,
+        expiresAt: Date? = nil,
+        hopCount:  UInt8? = nil
     ) {
         self.id        = id
         self.peerID    = peerID
@@ -234,28 +296,32 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
         self.timestamp = timestamp
         self.status    = status
         self.replyToID = replyToID
+        self.expiresAt = expiresAt
+        self.hopCount  = hopCount
     }
 }
 
-// MARK: - Known Peer (contact)
+// MARK: - Known Peer
 
-/// A known peer whose identity keys we've verified.
+/// A peer whose identity keys we've received and cryptographically verified.
 public struct KnownPeer: Codable, Identifiable, Sendable {
-    public let id:              String    // peerID
-    public let username:        String
+    public let id:               String
+    public let username:         String
     public let signingKeyPublic: Data
     public let dhKeyPublic:      Data
     public let safetyNumber:     String
     public var lastSeen:         Date?
     public var isOnline:         Bool
+    public var isDirectlyConnected: Bool    // false = reachable only via relay
 
     public init(from bundle: PreKeyBundle, safetyNumber: String) {
-        self.id               = bundle.peerID
-        self.username         = bundle.username
-        self.signingKeyPublic = bundle.signingKeyPublic
-        self.dhKeyPublic      = bundle.dhIdentityKeyPublic
-        self.safetyNumber     = safetyNumber
-        self.lastSeen         = Date()
-        self.isOnline         = true
+        self.id                  = bundle.peerID
+        self.username            = bundle.username
+        self.signingKeyPublic    = bundle.signingKeyPublic
+        self.dhKeyPublic         = bundle.dhIdentityKeyPublic
+        self.safetyNumber        = safetyNumber
+        self.lastSeen            = Date()
+        self.isOnline            = true
+        self.isDirectlyConnected = true
     }
 }
