@@ -280,7 +280,7 @@ These are architectural limitations that will be addressed in future releases:
 
 ### Responsible Disclosure
 
-Report security vulnerabilities **privately** to **security@sophax.com**. Do not open public issues for security bugs. We aim to respond within 48 hours and coordinate disclosure.
+Do not open public issues for security bugs.
 
 ---
 
@@ -339,14 +339,6 @@ Pull requests are welcome. Before contributing:
 - **Tests** — relay dedup, session initiation edge cases, offline queue
 - **macOS port** — Catalyst bridge
 - **Localization** — the app currently ships in English and Czech
-
----
-
-## Funding
-
-SophaxChat is developed by [Sophax Technologies](https://sophax.com) and maintained as free, open-source software. If you use this project for research or activism, consider supporting continued development.
-
-We are actively pursuing grants from [NLnet](https://nlnet.nl) / [NGI](https://ngi.eu) for the independent security audit and header encryption work.
 
 ---
 
