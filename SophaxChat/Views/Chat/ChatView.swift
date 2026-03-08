@@ -102,12 +102,12 @@ struct ChatView: View {
     }
 
     private var canSend: Bool {
-        !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && isOnline
+        !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func sendMessage() {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, isOnline else { return }
+        guard !text.isEmpty else { return }
         messageText = ""
         appState.sendMessage(text, toPeerID: peer.id)
     }

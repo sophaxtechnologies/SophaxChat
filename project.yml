@@ -42,7 +42,8 @@ targets:
         NSBonjourServices:
           - "_sophax-chat._tcp"
         UIBackgroundModes:
-          - nearby-interaction
+          - bluetooth-central
+          - bluetooth-peripheral
         UIRequiredDeviceCapabilities:
           - bluetooth-le
 

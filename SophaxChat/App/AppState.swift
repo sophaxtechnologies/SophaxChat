@@ -103,7 +103,10 @@ final class AppState: ObservableObject {
 extension AppState: ChatManagerDelegate {
 
     func chatManager(_ manager: ChatManager, didDiscoverPeer peer: KnownPeer) {
-        if !peers.contains(where: { $0.id == peer.id }) {
+        if let idx = peers.firstIndex(where: { $0.id == peer.id }) {
+            // Peer reconnected — update online state without duplicating
+            peers[idx].isOnline = true
+        } else {
             peers.append(peer)
         }
         onlinePeers.insert(peer.id)
@@ -115,6 +118,10 @@ extension AppState: ChatManagerDelegate {
         if let idx = peers.firstIndex(where: { $0.id == peerID }) {
             peers[idx].isOnline = false
         }
+    }
+
+    func chatManager(_ manager: ChatManager, didSendMessage message: StoredMessage, toPeer peerID: String) {
+        appendMessage(message)
     }
 
     func chatManager(_ manager: ChatManager, didReceiveMessage message: StoredMessage, fromPeer peerID: String) {
@@ -131,5 +138,12 @@ extension AppState: ChatManagerDelegate {
         // Only surface user-facing errors (not internal crypto errors)
         if case SophaxError.decryptionFailed = error { return }
         errorMessage = error.localizedDescription
+        // Auto-dismiss after 4 seconds
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            if errorMessage == error.localizedDescription {
+                errorMessage = nil
+            }
+        }
     }
 }

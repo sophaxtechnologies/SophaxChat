@@ -28,6 +28,8 @@ public protocol ChatManagerDelegate: AnyObject {
     func chatManager(_ manager: ChatManager, peerDidDisconnect peerID: String)
     /// A new inbound message was decrypted and stored.
     func chatManager(_ manager: ChatManager, didReceiveMessage message: StoredMessage, fromPeer peerID: String)
+    /// A message was sent (or queued) successfully by the local user.
+    func chatManager(_ manager: ChatManager, didSendMessage message: StoredMessage, toPeer peerID: String)
     /// A sent message was acknowledged by the recipient.
     func chatManager(_ manager: ChatManager, messageDelivered messageID: String, toPeer peerID: String)
     /// A non-fatal error occurred (logged; caller may display or ignore).
@@ -146,6 +148,12 @@ public final class ChatManager: @unchecked Sendable {
             direction: .sent, body: text, status: .sending
         )
         try? messageStore.append(message: stored)
+
+        // Notify the UI immediately so the sent message appears in the chat view
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didSendMessage: stored, toPeer: peerID)
+        }
 
         do {
             let wire = try buildOutboundWire(
