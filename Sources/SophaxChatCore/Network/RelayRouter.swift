@@ -31,7 +31,9 @@ public final class RelayRouter: @unchecked Sendable {
     /// Returns `true` if the envelope should be processed/forwarded,
     /// `false` if it was already seen or TTL is exhausted.
     public func shouldProcess(_ envelope: RelayEnvelope) -> Bool {
-        guard envelope.ttl > 0 else { return false }
+        // Drop if TTL exhausted OR if a malicious peer crafted an inflated TTL
+        // that would cause unbounded flooding across the mesh.
+        guard envelope.ttl > 0, envelope.ttl <= RelayEnvelope.maxTTL else { return false }
 
         lock.lock()
         defer { lock.unlock() }

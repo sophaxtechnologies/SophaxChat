@@ -35,7 +35,7 @@ struct MessageBubbleView: View {
                         Label("\(hops)", systemImage: "arrow.triangle.branch")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
-                            .help("Doručeno přes \(hops) relay hop\(hops == 1 ? "" : "y")")
+                            .help("Delivered via \(hops) relay hop\(hops == 1 ? "" : "s")")
                     }
 
                     if isSent {

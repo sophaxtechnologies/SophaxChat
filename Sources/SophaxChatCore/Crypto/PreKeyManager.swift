@@ -93,10 +93,8 @@ public final class PreKeyManager: @unchecked Sendable {
     public func generateBundle() throws -> PreKeyBundle {
         let spkData      = signedPreKey.publicKeyData
         let spkSignature = try identity.sign(spkData)
-        let otp          = oneTimePreKeys.randomElement()
-        guard let pub    = identity.publicIdentity else {
-            throw SophaxError.sessionNotInitialized
-        }
+        let otp = oneTimePreKeys.randomElement()
+        let pub = identity.publicIdentity
 
         return PreKeyBundle(
             signingKeyPublic:      pub.signingKeyPublic,
