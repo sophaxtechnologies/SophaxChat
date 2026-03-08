@@ -47,40 +47,46 @@ public final class IdentityManager: @unchecked Sendable {
     // MARK: - Private state
 
     private let keychain: KeychainManager
-    private var signingPair: SigningKeyPair!
-    private var dhPair: DHKeyPair!
-    public private(set) var publicIdentity: PublicIdentity!
+    private var signingPair: SigningKeyPair
+    private var dhPair: DHKeyPair
+    public private(set) var publicIdentity: PublicIdentity
 
     // MARK: - Init
 
     public init(keychain: KeychainManager) throws {
         self.keychain = keychain
-        try loadOrCreate()
-    }
 
-    private func loadOrCreate() throws {
-        let signing: Curve25519.Signing.PrivateKey
-        let dh: Curve25519.KeyAgreement.PrivateKey
-
-        let signingLoaded = try? keychain.loadSigningKey()
-        let dhLoaded      = try? keychain.loadDHIdentityKey()
-
-        if let s = signingLoaded, let d = dhLoaded {
-            signing = s
-            dh = d
-        } else {
-            // First launch — generate identity
-            signing = Curve25519.Signing.PrivateKey()
-            dh      = Curve25519.KeyAgreement.PrivateKey()
-            try keychain.saveSigningKey(signing)
-            try keychain.saveDHIdentityKey(dh)
-        }
-
-        signingPair = SigningKeyPair(privateKey: signing)
-        dhPair      = DHKeyPair(privateKey: dh)
+        // Load or generate key pairs before assigning to self.
+        // Using a static helper so Swift is satisfied that all stored
+        // properties are initialised before any instance method is called.
+        let (signing, dh) = try IdentityManager.loadOrCreateKeys(keychain: keychain)
+        self.signingPair  = SigningKeyPair(privateKey: signing)
+        self.dhPair       = DHKeyPair(privateKey: dh)
 
         let username = (try? keychain.loadUsername()) ?? "Anonymous"
-        publicIdentity = buildPublicIdentity(username: username, signing: signingPair, dh: dhPair)
+        self.publicIdentity = IdentityManager.buildStaticPublicIdentity(
+            username: username,
+            signing:  self.signingPair,
+            dh:       self.dhPair
+        )
+    }
+
+    /// Loads existing identity keys from the Keychain, or generates and saves
+    /// new ones on first launch. Throws on Keychain write errors.
+    private static func loadOrCreateKeys(
+        keychain: KeychainManager
+    ) throws -> (signing: Curve25519.Signing.PrivateKey,
+                 dh: Curve25519.KeyAgreement.PrivateKey) {
+        if let s = try? keychain.loadSigningKey(),
+           let d = try? keychain.loadDHIdentityKey() {
+            return (s, d)
+        }
+        // First launch — generate identity key pairs
+        let signing = Curve25519.Signing.PrivateKey()
+        let dh      = Curve25519.KeyAgreement.PrivateKey()
+        try keychain.saveSigningKey(signing)
+        try keychain.saveDHIdentityKey(dh)
+        return (signing, dh)
     }
 
     // MARK: - Public API
@@ -91,7 +97,9 @@ public final class IdentityManager: @unchecked Sendable {
             throw SophaxError.invalidMessageFormat("Username must be 1–64 characters")
         }
         try keychain.saveUsername(trimmed)
-        publicIdentity = buildPublicIdentity(username: trimmed, signing: signingPair, dh: dhPair)
+        publicIdentity = IdentityManager.buildStaticPublicIdentity(
+            username: trimmed, signing: signingPair, dh: dhPair
+        )
     }
 
     public var signingKeyPair: SigningKeyPair { signingPair }
@@ -115,12 +123,14 @@ public final class IdentityManager: @unchecked Sendable {
 
     // MARK: - Private helpers
 
-    private func buildPublicIdentity(
+    private static func buildStaticPublicIdentity(
         username: String,
         signing: SigningKeyPair,
         dh: DHKeyPair
     ) -> PublicIdentity {
-        let safetyNumber = generateSafetyNumber(signing: signing.publicKeyData, dh: dh.publicKeyData)
+        let safetyNumber = generateSafetyNumberStatic(
+            signing: signing.publicKeyData, dh: dh.publicKeyData
+        )
         return PublicIdentity(
             username: username,
             signingKeyPublic: signing.publicKeyData,
@@ -131,12 +141,13 @@ public final class IdentityManager: @unchecked Sendable {
 
     /// Generates a 60-character safety number split into 12 groups of 5 digits.
     /// Used for out-of-band identity verification (read aloud or compare QR codes).
-    private func generateSafetyNumber(signing: Data, dh: Data) -> String {
+    private static func generateSafetyNumberStatic(signing: Data, dh: Data) -> String {
         let combined = signing + dh
-        let hash = SHA512.hash(data: combined)
+        let hash     = SHA512.hash(data: combined)
         let hashData = Data(hash)
+        // SHA512 produces 64 bytes; we consume the first 30.
+        precondition(hashData.count >= 30, "SHA512 must produce at least 30 bytes")
 
-        // Take first 30 bytes, convert each pair to a decimal number 00000–99999
         var groups: [String] = []
         for i in stride(from: 0, to: 30, by: 5) {
             let chunk = hashData[i..<(i + 5)]

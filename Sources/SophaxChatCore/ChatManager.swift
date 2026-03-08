@@ -52,7 +52,13 @@ public final class ChatManager: @unchecked Sendable {
     // MARK: - State
 
     /// Active Double Ratchet sessions keyed by application-level peerID.
+    /// Always access through withSession(_:) to guarantee mutual exclusion.
     private var sessions: [String: DoubleRatchet] = [:]
+
+    /// Serialises every load → mutate → persist cycle on a single session.
+    /// DoubleRatchet is a class whose encrypt/decrypt methods mutate internal
+    /// state; concurrent access to the same session would corrupt the chain.
+    private let sessionLock = NSLock()
 
     /// Peers whose identity we've cryptographically verified, keyed by peerID.
     private var knownPeers: [String: KnownPeer] = [:]
@@ -179,9 +185,10 @@ public final class ChatManager: @unchecked Sendable {
         let ad        = associatedData(peerID: peerID)
 
         // ── Case 1: existing session ──────────────────────────────────────────
-        if let ratchet = loadSession(peerID: peerID) {
-            let ratchetMsg = try ratchet.encrypt(plaintext: plaintext, associatedData: ad)
-            try persistSession(ratchet, peerID: peerID)
+        // withSession returns nil (not throws) when no session exists yet.
+        if let ratchetMsg = try withSession(peerID: peerID, { ratchet in
+            try ratchet.encrypt(plaintext: plaintext, associatedData: ad)
+        }) {
             let payload = ChatMessagePayload(ratchetMessage: ratchetMsg, messageID: messageID)
             return try wireBuilder.build(.message, payload: payload)
         }
@@ -203,11 +210,10 @@ public final class ChatManager: @unchecked Sendable {
             sharedSecret:           x3dhResult.sharedSecret,
             remoteRatchetPublicKey: bundle.signedPreKeyPublic
         )
-        sessions[peerID] = ratchet
 
         // Encrypt the first message inside the session initiation envelope
-        let ratchetMsg   = try ratchet.encrypt(plaintext: plaintext, associatedData: ad)
-        try persistSession(ratchet, peerID: peerID)
+        let ratchetMsg = try ratchet.encrypt(plaintext: plaintext, associatedData: ad)
+        try storeNewSession(ratchet, peerID: peerID)
 
         // Alice's own bundle (Bob needs it to verify the X3DH and future messages)
         let senderBundle = try preKeys.generateBundle()
@@ -267,17 +273,46 @@ public final class ChatManager: @unchecked Sendable {
 
     // MARK: - Private: Session management
 
-    /// Returns an existing session from memory, falling back to Keychain.
-    private func loadSession(peerID: String) -> DoubleRatchet? {
-        if let existing = sessions[peerID] { return existing }
-        guard let data   = try? keychain.loadSessionState(peerID: peerID),
-              let ratchet = try? DoubleRatchet.importState(data) else { return nil }
+    /// Execute `body` with the session for `peerID` under `sessionLock`.
+    ///
+    /// Returns `nil` if no session exists (Keychain miss) — callers treat that as
+    /// "needs X3DH initiation". Throws on Keychain or crypto errors.
+    ///
+    /// The entire sequence — load → body → persist — is held under the lock so
+    /// no two calls can operate on the same DoubleRatchet concurrently.
+    private func withSession<T>(
+        peerID: String,
+        _ body: (DoubleRatchet) throws -> T
+    ) throws -> T? {
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
+
+        // Load from memory; fall back to Keychain
+        let ratchet: DoubleRatchet
+        if let existing = sessions[peerID] {
+            ratchet = existing
+        } else {
+            guard let data = try? keychain.loadSessionState(peerID: peerID) else {
+                return nil   // No persisted session — not an error
+            }
+            ratchet = try DoubleRatchet.importState(data)   // throws if state is corrupted
+            sessions[peerID] = ratchet
+        }
+
+        // Run the caller's crypto operation
+        let result = try body(ratchet)
+
+        // Persist mutated ratchet state (still under lock)
         sessions[peerID] = ratchet
-        return ratchet
+        try keychain.saveSessionState(data: ratchet.exportState(), peerID: peerID)
+
+        return result
     }
 
-    /// Persist the ratchet state to both memory and Keychain.
-    private func persistSession(_ ratchet: DoubleRatchet, peerID: String) throws {
+    /// Store a brand-new ratchet session (after X3DH initiation or reception).
+    private func storeNewSession(_ ratchet: DoubleRatchet, peerID: String) throws {
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
         sessions[peerID] = ratchet
         try keychain.saveSessionState(data: ratchet.exportState(), peerID: peerID)
     }
@@ -343,7 +378,7 @@ public final class ChatManager: @unchecked Sendable {
         let plaintext = try ratchet.decrypt(message: payload.initialMessage, associatedData: ad)
         let content   = try JSONDecoder().decode(MessageContent.self, from: plaintext)
 
-        try persistSession(ratchet, peerID: peerID)
+        try storeNewSession(ratchet, peerID: peerID)
 
         // Register the peer
         let safetyNumber = generateSafetyNumber(for: senderBundle)
@@ -371,15 +406,15 @@ public final class ChatManager: @unchecked Sendable {
         fromPeer peerID: String,
         hopCount: UInt8? = nil
     ) throws {
-        guard let ratchet = loadSession(peerID: peerID) else {
+        let ad = associatedData(peerID: peerID)
+
+        guard let plaintext = try withSession(peerID: peerID, { ratchet in
+            try ratchet.decrypt(message: payload.ratchetMessage, associatedData: ad)
+        }) else {
             throw SophaxError.sessionNotInitialized
         }
 
-        let ad        = associatedData(peerID: peerID)
-        let plaintext = try ratchet.decrypt(message: payload.ratchetMessage, associatedData: ad)
-        let content   = try JSONDecoder().decode(MessageContent.self, from: plaintext)
-
-        try persistSession(ratchet, peerID: peerID)
+        let content = try JSONDecoder().decode(MessageContent.self, from: plaintext)
 
         let stored = StoredMessage(
             id:        payload.messageID,
@@ -392,10 +427,14 @@ public final class ChatManager: @unchecked Sendable {
         )
         try messageStore.append(message: stored)
 
-        // Acknowledge delivery
-        let ack = AckMessage(messageID: payload.messageID, status: .delivered)
-        if let wire = try? wireBuilder.build(.ack, payload: ack) {
-            try? sendOrQueue(wire, toPeerID: peerID, messageID: payload.messageID)
+        // Acknowledge delivery — errors here are non-fatal (peer may be gone),
+        // but surfaced to the delegate so they are visible in logs.
+        do {
+            let ack  = AckMessage(messageID: payload.messageID, status: .delivered)
+            let wire = try wireBuilder.build(.ack, payload: ack)
+            try sendOrQueue(wire, toPeerID: peerID, messageID: payload.messageID)
+        } catch {
+            delegate?.chatManager(self, didEncounterError: error)
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -456,6 +495,12 @@ public final class ChatManager: @unchecked Sendable {
 
         case .initiateSession:
             let payload = try wireBuilder.decodePayload(InitiateSessionMessage.self, from: message)
+            // Self-authenticating: verify outer WireMessage signature using the key
+            // embedded in the sender's bundle. This prevents a relay node from
+            // substituting its own X25519 keys into the X3DH handshake (MITM).
+            guard try WireMessageBuilder.verify(
+                message, signingKeyPublic: payload.senderBundle.signingKeyPublic
+            ) else { throw SophaxError.invalidSignature }
             try handleInitiateSession(payload)
 
         case .message:
@@ -573,6 +618,12 @@ extension ChatManager: MeshManagerDelegate {
 
             case .initiateSession:
                 let payload = try wireBuilder.decodePayload(InitiateSessionMessage.self, from: message)
+                // Self-authenticating: verify using the key embedded in the sender's bundle.
+                // The outer signature check above (line ~550) skips unknown senders, so
+                // initiateSession must ALWAYS verify itself — same as hello.
+                guard try WireMessageBuilder.verify(
+                    message, signingKeyPublic: payload.senderBundle.signingKeyPublic
+                ) else { throw SophaxError.invalidSignature }
                 try handleInitiateSession(payload)
 
             case .message:
