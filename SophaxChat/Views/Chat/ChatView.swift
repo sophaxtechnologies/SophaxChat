@@ -283,7 +283,7 @@ private struct QRCodeView: View {
         let context = CIContext()
         let filter  = CIFilter.qrCodeGenerator()
         filter.message = Data(safetyNumber.utf8)
-        filter.correctionLevel = "M"
+        filter.correctionLevel = "H"
         guard let output = filter.outputImage else { return nil }
         // Scale up so it renders crisp
         let scaled = output.transformed(by: CGAffineTransform(scaleX: 10, y: 10))

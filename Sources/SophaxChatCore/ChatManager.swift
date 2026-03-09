@@ -133,6 +133,11 @@ public final class ChatManager: @unchecked Sendable {
     /// Prevents memory exhaustion if a peer never reconnects.
     private static let maxQueuedMessagesPerPeer = 100
 
+    /// Maximum expiry interval accepted from inbound messages (1 year).
+    /// Clamps peer-supplied expiresAt so a malicious sender cannot set
+    /// an absurd far-future date to prevent local cleanup.
+    private static let maxExpiryInterval: TimeInterval = 365 * 24 * 60 * 60
+
     /// Send a plaintext message to `peerID`.
     ///
     /// Handles all cases automatically:
@@ -151,7 +156,12 @@ public final class ChatManager: @unchecked Sendable {
             id: messageID, peerID: peerID,
             direction: .sent, body: text, status: .sending
         )
-        try? messageStore.append(message: stored)
+        do {
+            try messageStore.append(message: stored)
+        } catch {
+            delegate?.chatManager(self, didEncounterError: error)
+            return
+        }
 
         // Notify the UI immediately so the sent message appears in the chat view
         DispatchQueue.main.async { [weak self] in
@@ -408,7 +418,7 @@ public final class ChatManager: @unchecked Sendable {
             direction: .received,
             body:      content.body,
             status:    .delivered,
-            expiresAt: content.expiresAt
+            expiresAt: clampedExpiry(content.expiresAt)
         )
         try messageStore.append(message: stored)
 
@@ -441,7 +451,7 @@ public final class ChatManager: @unchecked Sendable {
             direction: .received,
             body:      content.body,
             status:    .delivered,
-            expiresAt: content.expiresAt,
+            expiresAt: clampedExpiry(content.expiresAt),
             hopCount:  hopCount
         )
         try messageStore.append(message: stored)
@@ -672,5 +682,15 @@ extension ChatManager: MeshManagerDelegate {
         _ manager: MeshManager, sendDidFailForPeer peerID: String, error: Error
     ) {
         delegate?.chatManager(self, didEncounterError: error)
+    }
+
+    // MARK: - Private helpers
+
+    /// Clamps a peer-supplied expiry date to at most `maxExpiryInterval` from now.
+    /// Prevents a malicious sender from setting expiresAt = year 9999 to block cleanup.
+    private func clampedExpiry(_ date: Date?) -> Date? {
+        guard let date else { return nil }
+        let maxDate = Date().addingTimeInterval(Self.maxExpiryInterval)
+        return min(date, maxDate)
     }
 }
