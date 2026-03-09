@@ -6,12 +6,41 @@
 import SwiftUI
 import SophaxChatCore
 
+// MARK: - Disappearing messages interval
+
+enum DisappearingInterval: String, CaseIterable, Identifiable {
+    case off      = "Off"
+    case thirtySeconds = "30 seconds"
+    case fiveMinutes   = "5 minutes"
+    case oneHour       = "1 hour"
+    case oneDay        = "24 hours"
+    case oneWeek       = "7 days"
+
+    var id: String { rawValue }
+
+    var seconds: TimeInterval? {
+        switch self {
+        case .off:           return nil
+        case .thirtySeconds: return 30
+        case .fiveMinutes:   return 5 * 60
+        case .oneHour:       return 60 * 60
+        case .oneDay:        return 24 * 60 * 60
+        case .oneWeek:       return 7 * 24 * 60 * 60
+        }
+    }
+
+    var icon: String {
+        self == .off ? "timer" : "timer.circle.fill"
+    }
+}
+
 struct ChatView: View {
     @EnvironmentObject var appState: AppState
     let peer: KnownPeer
 
     @State private var messageText: String = ""
     @State private var showingSafetyNumber = false
+    @State private var disappearingInterval: DisappearingInterval = .off
     @FocusState private var isInputFocused: Bool
     @Namespace private var bottomAnchor
 
@@ -52,6 +81,19 @@ struct ChatView: View {
 
             Divider()
 
+            // Disappearing messages indicator
+            if disappearingInterval != .off {
+                HStack(spacing: 4) {
+                    Image(systemName: "timer")
+                        .font(.caption2)
+                    Text("Messages disappear after \(disappearingInterval.rawValue.lowercased())")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+            }
+
             // Input bar
             HStack(spacing: 12) {
                 TextField("Message", text: $messageText, axis: .vertical)
@@ -85,6 +127,24 @@ struct ChatView: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    // Disappearing messages
+                    Menu {
+                        ForEach(DisappearingInterval.allCases) { interval in
+                            Button {
+                                disappearingInterval = interval
+                            } label: {
+                                if disappearingInterval == interval {
+                                    Label(interval.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(interval.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: disappearingInterval.icon)
+                            .foregroundStyle(disappearingInterval == .off ? .primary : .orange)
+                    }
+
                     // Safety number
                     Button {
                         showingSafetyNumber = true
@@ -107,7 +167,8 @@ struct ChatView: View {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         messageText = ""
-        appState.sendMessage(text, toPeerID: peer.id)
+        let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
+        appState.sendMessage(text, toPeerID: peer.id, expiresAt: expiresAt)
     }
 }
 

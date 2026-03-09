@@ -72,8 +72,8 @@ final class AppState: ObservableObject {
 
     // MARK: - Message sending
 
-    func sendMessage(_ text: String, toPeerID peerID: String) {
-        chatManager?.sendMessage(text, toPeerID: peerID)
+    func sendMessage(_ text: String, toPeerID peerID: String, expiresAt: Date? = nil) {
+        chatManager?.sendMessage(text, toPeerID: peerID, expiresAt: expiresAt)
         // Optimistic UI update handled via delegate callbacks
     }
 
