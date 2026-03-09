@@ -264,7 +264,7 @@ Tests cover: X3DH key symmetry (with/without OTPK), Double Ratchet bidirectional
 
 ### Identity verification
 
-Each user has a **Safety Number** — a 60-digit fingerprint derived from SHA-512 of both parties' identity keys, displayed as 12 groups of 5 digits. Compare with your contact in person or over a voice call to detect MITM attacks.
+Each user has a **Safety Number** — a 60-digit fingerprint derived from SHA-512 of their own identity keys, displayed as 12 groups of 5 digits. Both numbers are shown side by side in the verification screen: each party reads their own number aloud to the other. If both match on both devices, the connection is authentic.
 
 ### Known limitations (MVP)
 
@@ -291,7 +291,7 @@ Do not open public issues for security bugs.
 - [x] Double Ratchet messaging
 - [x] Multihop relay (TTL flooding + LRU dedup)
 - [x] Offline message queue
-- [x] Disappearing messages (local expiry timer)
+- [ ] Disappearing messages (timer infrastructure done; UI not yet exposed)
 - [x] SPK rotation (7-day automatic)
 - [x] OTPK replenishment
 - [x] Safety Numbers
@@ -338,7 +338,7 @@ Pull requests are welcome. Before contributing:
 - **UI/UX** — the interface is functional, not polished
 - **Tests** — relay dedup, session initiation edge cases, offline queue
 - **macOS port** — Catalyst bridge
-- **Localization** — the app currently ships in English and Czech
+- **Localization** — the app currently ships in English only
 
 ---
 
