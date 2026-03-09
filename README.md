@@ -291,14 +291,14 @@ Do not open public issues for security bugs.
 - [x] Double Ratchet messaging
 - [x] Multihop relay (TTL flooding + LRU dedup)
 - [x] Offline message queue
-- [ ] Disappearing messages (timer infrastructure done; UI not yet exposed)
+- [x] Disappearing messages (per-message expiry, 30s–7d, UI toggle in chat)
 - [x] SPK rotation (7-day automatic)
 - [x] OTPK replenishment
 - [x] Safety Numbers
 - [x] Relay hop indicator in UI
 
 ### v0.3 — Short-term
-- [ ] QR code Safety Number scanner
+- [x] QR code Safety Number scanner
 - [ ] Push-to-talk (voice messages, encrypted)
 - [ ] Image sharing (encrypted, ephemeral)
 - [ ] Unread message badges + notification support
