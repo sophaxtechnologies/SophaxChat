@@ -8,11 +8,10 @@ import SophaxChatCore
 
 struct ChatListView: View {
     @EnvironmentObject var appState: AppState
-    @State private var selectedPeer: KnownPeer?
     @State private var showingIdentity = false
 
     var body: some View {
-        NavigationSplitView {
+        NavigationStack {
             List {
                 // Active conversations (peers with messages)
                 let conversationPeers = appState.peers.filter {
@@ -21,9 +20,9 @@ struct ChatListView: View {
                 if !conversationPeers.isEmpty {
                     Section("Conversations") {
                         ForEach(conversationPeers) { peer in
-                            ConversationRow(peer: peer, messages: appState.messages[peer.id] ?? [])
-                                .contentShape(Rectangle())
-                                .onTapGesture { selectedPeer = peer }
+                            NavigationLink(destination: ChatView(peer: peer)) {
+                                ConversationRow(peer: peer, messages: appState.messages[peer.id] ?? [])
+                            }
                         }
                     }
                 }
@@ -35,9 +34,9 @@ struct ChatListView: View {
                 if !newPeers.isEmpty {
                     Section("Nearby") {
                         ForEach(newPeers) { peer in
-                            PeerRow(peer: peer, isOnline: true)
-                                .contentShape(Rectangle())
-                                .onTapGesture { selectedPeer = peer }
+                            NavigationLink(destination: ChatView(peer: peer)) {
+                                PeerRow(peer: peer, isOnline: true)
+                            }
                         }
                     }
                 }
@@ -76,21 +75,14 @@ struct ChatListView: View {
             .refreshable {
                 // MeshManager auto-discovers — nothing to refresh
             }
-        } detail: {
-            if let peer = selectedPeer {
-                ChatView(peer: peer)
-            } else {
-                ContentUnavailableView(
-                    "Select a conversation",
-                    systemImage: "bubble.left.and.bubble.right",
-                    description: Text("Tap a nearby peer to start an encrypted conversation")
-                )
-            }
         }
         .sheet(isPresented: $showingIdentity) {
             IdentityView()
         }
-        .alert("Error", isPresented: .constant(appState.errorMessage != nil), presenting: appState.errorMessage) { _ in
+        .alert("Error", isPresented: Binding(
+            get: { appState.errorMessage != nil },
+            set: { if !$0 { appState.errorMessage = nil } }
+        ), presenting: appState.errorMessage) { _ in
             Button("OK") { appState.errorMessage = nil }
         } message: { msg in
             Text(msg)

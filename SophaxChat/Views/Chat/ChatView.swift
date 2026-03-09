@@ -59,8 +59,6 @@ struct ChatView: View {
                     .font(.body)
                     .lineLimit(1...6)
                     .focused($isInputFocused)
-                    .submitLabel(.send)
-                    .onSubmit { sendMessage() }
 
                 Button(action: sendMessage) {
                     Image(systemName: "arrow.up.circle.fill")
@@ -120,7 +118,7 @@ struct SafetyNumberView: View {
     let peer: KnownPeer
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: 24) {
                 Image(systemName: "checkmark.shield.fill")
                     .font(.system(size: 56))

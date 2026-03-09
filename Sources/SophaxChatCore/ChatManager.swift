@@ -403,8 +403,10 @@ public final class ChatManager: @unchecked Sendable {
         )
         try messageStore.append(message: stored)
 
+        let discoveredPeer = peer
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            self.delegate?.chatManager(self, didDiscoverPeer: discoveredPeer)
             self.delegate?.chatManager(self, didReceiveMessage: stored, fromPeer: peerID)
         }
     }

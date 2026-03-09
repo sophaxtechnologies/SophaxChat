@@ -14,7 +14,7 @@ struct IdentityView: View {
     private var identity: IdentityManager? { appState.chatManager?.identity }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List {
                 // Identity summary
                 Section {
@@ -89,14 +89,17 @@ struct IdentityView: View {
 
                 // Open source link
                 Section {
-                    HStack {
-                        Label("Source Code", systemImage: "chevron.left.forwardslash.chevron.right")
-                        Spacer()
-                        Text("GitHub")
-                            .foregroundStyle(.secondary)
-                        Image(systemName: "arrow.up.right")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    Link(destination: URL(string: "https://github.com/SophaxTechnologies/SophaxChat")!) {
+                        HStack {
+                            Label("Source Code", systemImage: "chevron.left.forwardslash.chevron.right")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text("GitHub")
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 } header: {
                     Text("Open Source")

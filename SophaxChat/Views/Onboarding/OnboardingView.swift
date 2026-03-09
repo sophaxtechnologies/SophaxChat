@@ -14,7 +14,7 @@ struct OnboardingView: View {
     @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: 32) {
                 Spacer()
 
@@ -106,7 +106,7 @@ struct SecurityInfoView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List {
                 Section {
                     SecurityFeatureRow(

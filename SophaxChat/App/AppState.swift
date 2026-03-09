@@ -27,6 +27,7 @@ final class AppState: ObservableObject {
     // MARK: - Init
 
     init() {
+        loadSavedPeers()
         // If identity exists, set up immediately
         if keychain.hasIdentity() {
             setupChatManager(username: nil)
@@ -87,6 +88,28 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Peer persistence
+
+    private let peersDefaultsKey = "com.sophax.knownPeers"
+
+    private func loadSavedPeers() {
+        guard let data = UserDefaults.standard.data(forKey: peersDefaultsKey),
+              let saved = try? JSONDecoder().decode([KnownPeer].self, from: data) else { return }
+        // Restore peers as offline — their online status is determined by live mesh connections
+        peers = saved.map { peer in
+            var p = peer
+            p.isOnline = false
+            p.isDirectlyConnected = false
+            return p
+        }
+    }
+
+    private func savePeers() {
+        if let data = try? JSONEncoder().encode(peers) {
+            UserDefaults.standard.set(data, forKey: peersDefaultsKey)
+        }
+    }
+
     private func appendMessage(_ message: StoredMessage) {
         var existing = messages[message.peerID] ?? []
         // Deduplicate
@@ -108,6 +131,7 @@ extension AppState: ChatManagerDelegate {
             peers[idx].isOnline = true
         } else {
             peers.append(peer)
+            savePeers()
         }
         onlinePeers.insert(peer.id)
     }
