@@ -129,6 +129,10 @@ public final class ChatManager: @unchecked Sendable {
     /// Maximum message body length in UTF-8 bytes.
     public static let maxMessageBytes = 65_536   // 64 KB
 
+    /// Maximum number of outbound messages queued per offline peer.
+    /// Prevents memory exhaustion if a peer never reconnects.
+    private static let maxQueuedMessagesPerPeer = 100
+
     /// Send a plaintext message to `peerID`.
     ///
     /// Handles all cases automatically:
@@ -262,7 +266,12 @@ public final class ChatManager: @unchecked Sendable {
 
         } else {
             // ── No connectivity: queue for later ──────────────────────────────
-            pendingQueue[peerID, default: []].append((wire: wire, messageID: messageID))
+            var queue = pendingQueue[peerID, default: []]
+            guard queue.count < Self.maxQueuedMessagesPerPeer else {
+                throw SophaxError.invalidMessageFormat("Offline message queue is full — reconnect before sending more")
+            }
+            queue.append((wire: wire, messageID: messageID))
+            pendingQueue[peerID] = queue
         }
     }
 
