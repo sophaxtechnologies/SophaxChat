@@ -5,6 +5,7 @@
 
 import SwiftUI
 import SophaxChatCore
+import CoreImage.CIFilterBuiltins
 
 // MARK: - Disappearing messages interval
 
@@ -179,6 +180,9 @@ struct SafetyNumberView: View {
     @EnvironmentObject var appState: AppState
     let peer: KnownPeer
 
+    @State private var showingMyQR   = false
+    @State private var showingPeerQR = false
+
     private var mySafetyNumber: String? {
         appState.chatManager?.identity.publicIdentity.safetyNumber
     }
@@ -203,7 +207,8 @@ struct SafetyNumberView: View {
                         label: "\(peer.username)'s number",
                         sublabel: "They read this to you",
                         safetyNumber: peer.safetyNumber,
-                        color: .blue
+                        color: .blue,
+                        onShowQR: { showingPeerQR = true }
                     )
 
                     // Your number
@@ -212,8 +217,12 @@ struct SafetyNumberView: View {
                             label: "Your number",
                             sublabel: "You read this to them",
                             safetyNumber: mine,
-                            color: .green
+                            color: .green,
+                            onShowQR: { showingMyQR = true }
                         )
+                        .sheet(isPresented: $showingMyQR) {
+                            QRSheet(title: "Your Safety Number", safetyNumber: mine)
+                        }
                     }
 
                     Text("If either number doesn't match, someone may be intercepting your messages. Do not continue.")
@@ -231,6 +240,67 @@ struct SafetyNumberView: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .sheet(isPresented: $showingPeerQR) {
+                QRSheet(title: "\(peer.username)'s Safety Number", safetyNumber: peer.safetyNumber)
+            }
+        }
+    }
+}
+
+private struct QRSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let safetyNumber: String
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                QRCodeView(safetyNumber: safetyNumber)
+                    .padding(.top, 24)
+                Text("Scan this with the other device to compare safety numbers.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - QR Code generator
+
+private struct QRCodeView: View {
+    let safetyNumber: String
+
+    private var qrImage: Image? {
+        let context = CIContext()
+        let filter  = CIFilter.qrCodeGenerator()
+        filter.message = Data(safetyNumber.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage else { return nil }
+        // Scale up so it renders crisp
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+        return Image(decorative: cgImage, scale: 1)
+    }
+
+    var body: some View {
+        if let img = qrImage {
+            img
+                .interpolation(.none)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 200, height: 200)
+                .padding(12)
+                .background(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
 }
@@ -240,6 +310,7 @@ private struct SafetyNumberBlock: View {
     let sublabel: String
     let safetyNumber: String
     let color: Color
+    let onShowQR: () -> Void
 
     var body: some View {
         VStack(spacing: 10) {
@@ -252,6 +323,10 @@ private struct SafetyNumberBlock: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button(action: onShowQR) {
+                    Image(systemName: "qrcode")
+                        .foregroundStyle(color)
+                }
             }
             .padding(.horizontal)
 
