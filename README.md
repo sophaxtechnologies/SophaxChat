@@ -301,13 +301,14 @@ Do not open public issues for security bugs.
 - [x] QR code Safety Number scanner
 - [ ] Push-to-talk (voice messages, encrypted)
 - [ ] Image sharing (encrypted, ephemeral)
-- [ ] Unread message badges + notification support
+- [x] Unread message badges
+- [x] Delete conversation + block peer
 
 ### v0.4 — Security hardening
 - [ ] **Header encryption** (Double Ratchet extension — hides metadata)
 - [ ] **Sealed sender** (hides sender identity from relay nodes)
-- [ ] Rate limiting on relay forwarding
-- [ ] Per-peer session initiation deduplication
+- [x] Rate limiting on relay forwarding (20 relays / 10s per peer)
+- [x] Per-peer session initiation deduplication
 
 ### v0.5 — Platform
 - [ ] macOS support (Catalyst / native AppKit)
