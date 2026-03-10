@@ -8,7 +8,8 @@ import SophaxChatCore
 
 struct ChatListView: View {
     @EnvironmentObject var appState: AppState
-    @State private var showingIdentity = false
+    @State private var showingIdentity  = false
+    @State private var showingSettings  = false
     @State private var peerToBlock: KnownPeer? = nil
 
     var body: some View {
@@ -93,10 +94,17 @@ struct ChatListView: View {
             .navigationTitle("SophaxChat")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingIdentity = true
-                    } label: {
-                        Image(systemName: "person.crop.circle")
+                    HStack(spacing: 4) {
+                        Button {
+                            showingSettings = true
+                        } label: {
+                            Image(systemName: "gearshape")
+                        }
+                        Button {
+                            showingIdentity = true
+                        } label: {
+                            Image(systemName: "person.crop.circle")
+                        }
                     }
                 }
             }
@@ -104,6 +112,9 @@ struct ChatListView: View {
         }
         .sheet(isPresented: $showingIdentity) {
             IdentityView()
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
         }
         .alert("Error", isPresented: Binding(
             get: { appState.errorMessage != nil },

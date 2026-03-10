@@ -34,6 +34,8 @@ public protocol ChatManagerDelegate: AnyObject {
     func chatManager(_ manager: ChatManager, messageDelivered messageID: String, toPeer peerID: String)
     /// A non-fatal error occurred (logged; caller may display or ignore).
     func chatManager(_ manager: ChatManager, didEncounterError error: Error)
+    /// The remote peer's typing state changed.
+    func chatManager(_ manager: ChatManager, peerDidUpdateTyping peerID: String, isTyping: Bool)
 }
 
 // MARK: - ChatManager
@@ -184,6 +186,13 @@ public final class ChatManager: @unchecked Sendable {
     /// All stored messages for a conversation, oldest-first.
     public func messages(forPeer peerID: String) -> [StoredMessage] {
         (try? messageStore.messages(forPeer: peerID)) ?? []
+    }
+
+    /// Send a typing indicator to `peerID` (direct path only, best-effort — no relay, no queue).
+    public func sendTypingIndicator(toPeerID peerID: String, isTyping: Bool) {
+        guard mesh.isConnected(peerID: peerID) else { return }
+        guard let wire = try? wireBuilder.build(.typing, payload: TypingMessage(isTyping: isTyping)) else { return }
+        try? mesh.send(wire, toPeerID: peerID)
     }
 
     /// All peers with a verified identity (online or offline).
@@ -678,7 +687,13 @@ extension ChatManager: MeshManagerDelegate {
                 try handleRelay(envelope, fromRelayPeer: message.senderID)
 
             case .typing:
-                break
+                let payload = try wireBuilder.decodePayload(TypingMessage.self, from: message)
+                let senderID = message.senderID
+                let isTyping = payload.isTyping
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.delegate?.chatManager(self, peerDidUpdateTyping: senderID, isTyping: isTyping)
+                }
             }
         } catch {
             #if DEBUG

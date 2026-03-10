@@ -1,13 +1,142 @@
 // CryptoTests.swift
 // SophaxChatCoreTests
 //
-// Tests for X3DH key agreement and Double Ratchet algorithm.
+// Tests for X3DH key agreement, Double Ratchet algorithm, and RelayRouter.
 // Uses Swift Testing framework (Swift 5.10+, no Xcode required).
 
 import Testing
 import Foundation
 import CryptoKit
 @testable import SophaxChatCore
+
+// MARK: - RelayRouter Tests
+
+@Suite("RelayRouter")
+struct RelayRouterTests {
+
+    /// Build a minimal RelayEnvelope for testing.
+    func makeEnvelope(id: String = UUID().uuidString, ttl: UInt8 = 6) -> RelayEnvelope {
+        // The inner WireMessage content doesn't matter for routing tests.
+        let fakePayload = Data("test".utf8)
+        let fakeWire = WireMessage(
+            type: .message, payload: fakePayload,
+            senderID: "alice", timestamp: Date(), signature: Data(repeating: 0, count: 64)
+        )
+        return RelayEnvelope(
+            id:           id,
+            targetPeerID: "bob",
+            originPeerID: "alice",
+            ttl:          ttl,
+            hopCount:     0,
+            message:      fakeWire
+        )
+    }
+
+    @Test("First-seen envelope is accepted")
+    func firstEnvelopeAccepted() {
+        let router   = RelayRouter()
+        let envelope = makeEnvelope()
+        #expect(router.shouldProcess(envelope) == true)
+    }
+
+    @Test("Duplicate envelope is rejected")
+    func duplicateEnvelopeRejected() {
+        let router   = RelayRouter()
+        let envelope = makeEnvelope(id: "fixed-id")
+        _ = router.shouldProcess(envelope)
+        #expect(router.shouldProcess(envelope) == false, "Relay dedup must drop already-seen IDs")
+    }
+
+    @Test("Zero-TTL envelope is rejected")
+    func zeroTTLRejected() {
+        let router   = RelayRouter()
+        let envelope = makeEnvelope(ttl: 0)
+        #expect(router.shouldProcess(envelope) == false)
+    }
+
+    @Test("Inflated TTL above maxTTL is rejected")
+    func inflatedTTLRejected() {
+        let router   = RelayRouter()
+        let envelope = makeEnvelope(ttl: RelayEnvelope.maxTTL + 1)
+        #expect(router.shouldProcess(envelope) == false)
+    }
+
+    @Test("LRU eviction allows re-entry after cap exceeded")
+    func lruEviction() {
+        let cap    = 10
+        let router = RelayRouter(maxSeen: cap)
+
+        // Fill the cache to cap
+        for _ in 0..<cap {
+            _ = router.shouldProcess(makeEnvelope())
+        }
+        #expect(router.seenCount == cap)
+
+        // Add one more — oldest should be evicted
+        _ = router.shouldProcess(makeEnvelope())
+        #expect(router.seenCount == cap, "Cache size must not exceed maxSeen")
+    }
+
+    @Test("reset() clears the seen-set")
+    func resetClearsSeen() {
+        let router = RelayRouter()
+        _ = router.shouldProcess(makeEnvelope())
+        #expect(router.seenCount == 1)
+        router.reset()
+        #expect(router.seenCount == 0)
+    }
+
+    @Test("Rate limit blocks after maxRelaysPerWindow")
+    func rateLimitBlocks() {
+        let max    = 5
+        let router = RelayRouter(maxRelaysPerWindow: max, windowSeconds: 60)
+
+        // First `max` calls should pass
+        for _ in 0..<max {
+            #expect(router.isRateLimited(senderID: "eve") == false)
+        }
+
+        // Next call should be blocked
+        #expect(router.isRateLimited(senderID: "eve") == true, "Should be rate-limited after \(max) relays")
+    }
+
+    @Test("Rate limit resets after window expires")
+    func rateLimitWindowReset() {
+        let router = RelayRouter(maxRelaysPerWindow: 2, windowSeconds: 0.01)
+
+        _ = router.isRateLimited(senderID: "eve")
+        _ = router.isRateLimited(senderID: "eve")
+        #expect(router.isRateLimited(senderID: "eve") == true)
+
+        // Wait for window to expire
+        Thread.sleep(forTimeInterval: 0.05)
+
+        // Window reset — should pass again
+        #expect(router.isRateLimited(senderID: "eve") == false, "Rate limit must reset after window expires")
+    }
+
+    @Test("Rate limit is per-sender (independent windows)")
+    func rateLimitPerSender() {
+        let max    = 3
+        let router = RelayRouter(maxRelaysPerWindow: max, windowSeconds: 60)
+
+        // Exhaust eve's quota
+        for _ in 0..<max { _ = router.isRateLimited(senderID: "eve") }
+        #expect(router.isRateLimited(senderID: "eve") == true)
+
+        // alice's quota is independent
+        #expect(router.isRateLimited(senderID: "alice") == false)
+    }
+
+    @Test("Different envelope IDs are all accepted (no false positives)")
+    func noFalsePositives() {
+        let router = RelayRouter()
+        for _ in 0..<50 {
+            let envelope = makeEnvelope() // new UUID each time
+            #expect(router.shouldProcess(envelope) == true)
+        }
+    }
+}
 
 // MARK: - X3DH Tests
 

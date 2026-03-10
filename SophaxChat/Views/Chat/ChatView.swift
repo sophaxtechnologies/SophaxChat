@@ -44,6 +44,7 @@ struct ChatView: View {
     @State private var showingSafetyNumber = false
     @State private var showingBlockConfirm = false
     @State private var disappearingInterval: DisappearingInterval = .off
+    @State private var typingTask: Task<Void, Never>? = nil
     @FocusState private var isInputFocused: Bool
     @Namespace private var bottomAnchor
 
@@ -67,6 +68,11 @@ struct ChatView: View {
                             MessageBubbleView(message: message)
                                 .id(message.id)
                         }
+                        // Typing indicator bubble
+                        if appState.typingPeers.contains(peer.id) {
+                            TypingBubbleView()
+                                .id("typing-indicator")
+                        }
                         // Invisible anchor at the bottom
                         Color.clear.frame(height: 1).id("bottom")
                     }
@@ -77,6 +83,13 @@ struct ChatView: View {
                 .onChange(of: messages.count) { _, _ in
                     withAnimation {
                         proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                }
+                .onChange(of: appState.typingPeers.contains(peer.id)) { _, isTyping in
+                    if isTyping {
+                        withAnimation {
+                            proxy.scrollTo("bottom", anchor: .bottom)
+                        }
                     }
                 }
                 .onAppear {
@@ -114,6 +127,22 @@ struct ChatView: View {
                     .font(.body)
                     .lineLimit(1...6)
                     .focused($isInputFocused)
+                    .onChange(of: messageText) { _, newValue in
+                        let nonEmpty = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        if nonEmpty {
+                            appState.sendTypingIndicator(toPeerID: peer.id, isTyping: true)
+                            typingTask?.cancel()
+                            typingTask = Task { @MainActor in
+                                try? await Task.sleep(for: .seconds(5))
+                                appState.sendTypingIndicator(toPeerID: peer.id, isTyping: false)
+                                typingTask = nil
+                            }
+                        } else {
+                            typingTask?.cancel()
+                            typingTask = nil
+                            appState.sendTypingIndicator(toPeerID: peer.id, isTyping: false)
+                        }
+                    }
 
                 Button(action: sendMessage) {
                     Image(systemName: "arrow.up.circle.fill")
@@ -203,9 +232,44 @@ struct ChatView: View {
     private func sendMessage() {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // Stop typing indicator immediately on send
+        typingTask?.cancel()
+        typingTask = nil
+        appState.sendTypingIndicator(toPeerID: peer.id, isTyping: false)
         messageText = ""
         let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
         appState.sendMessage(text, toPeerID: peer.id, expiresAt: expiresAt)
+    }
+}
+
+// MARK: - Typing Bubble
+
+private struct TypingBubbleView: View {
+    @State private var phase = 0
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(Color.secondary.opacity(phase == i ? 1.0 : 0.3))
+                    .frame(width: 7, height: 7)
+                    .offset(y: phase == i ? -3 : 0)
+                    .animation(.easeInOut(duration: 0.35), value: phase)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color(.systemGray5))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task {
+            while !Task.isCancelled {
+                for i in 0..<3 {
+                    phase = i
+                    try? await Task.sleep(for: .milliseconds(350))
+                }
+            }
+        }
     }
 }
 

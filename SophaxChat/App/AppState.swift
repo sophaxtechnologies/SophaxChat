@@ -19,7 +19,12 @@ final class AppState: ObservableObject {
     @Published var onlinePeers:  Set<String> = []
     @Published var blockedPeers: Set<String> = []
     @Published var unreadCounts: [String: Int] = [:]
+    @Published var typingPeers:  Set<String> = []
     @Published var errorMessage: String? = nil
+
+    /// Username cache for blocked peers (persisted so they're still readable after restart).
+    private(set) var blockedPeerNames: [String: String] = [:]
+    private var typingTimeouts: [String: Task<Void, Never>] = [:]
 
     // MARK: - Core
 
@@ -77,6 +82,10 @@ final class AppState: ObservableObject {
         chatManager?.sendMessage(text, toPeerID: peerID, expiresAt: expiresAt)
     }
 
+    func sendTypingIndicator(toPeerID peerID: String, isTyping: Bool) {
+        chatManager?.sendTypingIndicator(toPeerID: peerID, isTyping: isTyping)
+    }
+
     // MARK: - Conversation management
 
     func deleteConversation(peerID: String) {
@@ -88,6 +97,9 @@ final class AppState: ObservableObject {
     // MARK: - Blocking
 
     func blockPeer(peerID: String) {
+        if let peer = peers.first(where: { $0.id == peerID }) {
+            blockedPeerNames[peerID] = peer.username
+        }
         blockedPeers.insert(peerID)
         saveBlockedPeers()
         // Remove from active peers list — they'll reappear if unblocked and online
@@ -99,6 +111,7 @@ final class AppState: ObservableObject {
 
     func unblockPeer(peerID: String) {
         blockedPeers.remove(peerID)
+        blockedPeerNames.removeValue(forKey: peerID)
         saveBlockedPeers()
     }
 
@@ -156,14 +169,22 @@ final class AppState: ObservableObject {
     // MARK: - Blocked peers persistence
 
     private let blockedDefaultsKey = "com.sophax.blockedPeers"
+    private let blockedNamesKey    = "com.sophax.blockedPeerNames"
 
     private func loadBlockedPeers() {
         let saved = UserDefaults.standard.stringArray(forKey: blockedDefaultsKey) ?? []
         blockedPeers = Set(saved)
+        if let data  = UserDefaults.standard.data(forKey: blockedNamesKey),
+           let names = try? JSONDecoder().decode([String: String].self, from: data) {
+            blockedPeerNames = names
+        }
     }
 
     private func saveBlockedPeers() {
         UserDefaults.standard.set(Array(blockedPeers), forKey: blockedDefaultsKey)
+        if let data = try? JSONEncoder().encode(blockedPeerNames) {
+            UserDefaults.standard.set(data, forKey: blockedNamesKey)
+        }
     }
 }
 
@@ -202,6 +223,23 @@ extension AppState: ChatManagerDelegate {
     func chatManager(_ manager: ChatManager, messageDelivered messageID: String, toPeer peerID: String) {
         if let idx = messages[peerID]?.firstIndex(where: { $0.id == messageID }) {
             messages[peerID]?[idx].status = .delivered
+        }
+    }
+
+    func chatManager(_ manager: ChatManager, peerDidUpdateTyping peerID: String, isTyping: Bool) {
+        guard !blockedPeers.contains(peerID) else { return }
+        typingTimeouts[peerID]?.cancel()
+        if isTyping {
+            typingPeers.insert(peerID)
+            // Auto-clear after 8 seconds in case the stop signal is lost
+            typingTimeouts[peerID] = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(8))
+                self?.typingPeers.remove(peerID)
+                self?.typingTimeouts.removeValue(forKey: peerID)
+            }
+        } else {
+            typingPeers.remove(peerID)
+            typingTimeouts.removeValue(forKey: peerID)
         }
     }
 
