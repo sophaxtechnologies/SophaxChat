@@ -4,10 +4,12 @@
 // Individual message bubble in the chat view.
 
 import SwiftUI
+import UIKit
 import SophaxChatCore
 
 struct MessageBubbleView: View {
     let message: StoredMessage
+    var onDelete: (() -> Void)? = nil
 
     private var isSent: Bool { message.direction == .sent }
 
@@ -24,6 +26,19 @@ struct MessageBubbleView: View {
                     .padding(.vertical, 10)
                     .background(isSent ? Color.accentColor : Color(.secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .contextMenu {
+                        Button {
+                            UIPasteboard.general.string = message.body
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                        if let onDelete {
+                            Divider()
+                            Button(role: .destructive, action: onDelete) {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
 
                 // Timestamp + relay indicator + status
                 HStack(spacing: 4) {

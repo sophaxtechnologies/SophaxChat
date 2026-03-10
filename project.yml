@@ -57,6 +57,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sophax.SophaxChatCore
         DEFINES_MODULE: YES
+        GENERATE_INFOPLIST_FILE: YES
 
   SophaxChatCoreTests:
     type: bundle.unit-test

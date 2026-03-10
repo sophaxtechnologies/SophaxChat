@@ -19,6 +19,50 @@
 import Foundation
 import CryptoKit
 
+// MARK: - Sealed sender helpers (file-private)
+
+private func sealWireMessage(_ wire: WireMessage, recipientDHPublicKey: Data) throws -> SealedMessage {
+    // Generate ephemeral key pair
+    let ephPair   = DHKeyPair()
+    let recipKey  = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: recipientDHPublicKey)
+    let shared    = try ephPair.privateKey.sharedSecretFromKeyAgreement(with: recipKey)
+
+    // Derive sealing key
+    var ikmData = Data()
+    shared.withUnsafeBytes { ikmData.append(contentsOf: $0) }
+    let sealingKey = HKDF<SHA256>.deriveKey(
+        inputKeyMaterial: SymmetricKey(data: ikmData),
+        info: CryptoConstants.sealedSenderInfo,
+        outputByteCount: 32
+    )
+
+    let wireJSON  = try JSONEncoder().encode(wire)
+    let nonce     = ChaChaPoly.Nonce()
+    let sealed    = try ChaChaPoly.seal(wireJSON, using: sealingKey, nonce: nonce, authenticating: Data())
+    return SealedMessage(ephemeralPublicKey: ephPair.publicKeyData, encryptedPayload: sealed.combined)
+}
+
+private func unsealMessage(_ sealed: SealedMessage, recipientDHPrivateKey: Curve25519.KeyAgreement.PrivateKey) throws -> WireMessage {
+    let ephKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: sealed.ephemeralPublicKey)
+    let shared = try recipientDHPrivateKey.sharedSecretFromKeyAgreement(with: ephKey)
+
+    var ikmData = Data()
+    shared.withUnsafeBytes { ikmData.append(contentsOf: $0) }
+    let sealingKey = HKDF<SHA256>.deriveKey(
+        inputKeyMaterial: SymmetricKey(data: ikmData),
+        info: CryptoConstants.sealedSenderInfo,
+        outputByteCount: 32
+    )
+
+    do {
+        let box      = try ChaChaPoly.SealedBox(combined: sealed.encryptedPayload)
+        let wireJSON = try ChaChaPoly.open(box, using: sealingKey, authenticating: Data())
+        return try JSONDecoder().decode(WireMessage.self, from: wireJSON)
+    } catch {
+        throw SophaxError.decryptionFailed
+    }
+}
+
 // MARK: - Delegate
 
 public protocol ChatManagerDelegate: AnyObject {
@@ -271,14 +315,25 @@ public final class ChatManager: @unchecked Sendable {
             try mesh.send(wire, toPeerID: peerID)
 
         } else if mesh.directPeerCount > 0 {
-            // ── Multihop relay: flood to all connected peers ──────────────────
+            // ── Multihop relay: seal the inner message then flood ─────────────
+            // Sealed sender hides message type and payload from relay nodes.
+            // Only the intended recipient can decrypt; relay nodes see only
+            // the ephemeral public key and opaque ciphertext.
+            let innerWire: WireMessage
+            if let peer = knownPeers[peerID] {
+                let sealed    = try sealWireMessage(wire, recipientDHPublicKey: peer.dhKeyPublic)
+                innerWire = try wireBuilder.build(.sealed, payload: sealed)
+            } else {
+                innerWire = wire    // Unknown peer — fallback to plaintext relay
+            }
+
             let envelope = RelayEnvelope(
                 id:           UUID().uuidString,
                 targetPeerID: peerID,
                 originPeerID: identity.publicIdentity.peerID,
                 ttl:          RelayEnvelope.maxTTL,
                 hopCount:     0,
-                message:      wire
+                message:      innerWire
             )
             let relayWire = try wireBuilder.build(.relay, payload: envelope)
             try mesh.broadcast(relayWire)
@@ -559,6 +614,17 @@ public final class ChatManager: @unchecked Sendable {
             let payload = try wireBuilder.decodePayload(AckMessage.self, from: message)
             handleAck(payload, fromPeer: message.senderID)
 
+        case .sealed:
+            let sealed = try wireBuilder.decodePayload(SealedMessage.self, from: message)
+            let inner  = try unsealMessage(sealed, recipientDHPrivateKey: identity.dhKeyPair.privateKey)
+            // Verify inner signature using sender's known key
+            if let peer = knownPeers[inner.senderID] {
+                guard (try? WireMessageBuilder.verify(inner, signingKeyPublic: peer.signingKeyPublic)) == true else {
+                    return
+                }
+            }
+            try processRelayedInnerMessage(inner, hopCount: hopCount)
+
         case .relay, .typing:
             break   // No relay-of-relay; typing over relay has no value
         }
@@ -685,6 +751,17 @@ extension ChatManager: MeshManagerDelegate {
             case .relay:
                 let envelope = try wireBuilder.decodePayload(RelayEnvelope.self, from: message)
                 try handleRelay(envelope, fromRelayPeer: message.senderID)
+
+            case .sealed:
+                // Sealed sender arriving on a direct connection (unusual but valid)
+                let sealed = try wireBuilder.decodePayload(SealedMessage.self, from: message)
+                let inner  = try unsealMessage(sealed, recipientDHPrivateKey: identity.dhKeyPair.privateKey)
+                if let peer = knownPeers[inner.senderID] {
+                    guard (try? WireMessageBuilder.verify(inner, signingKeyPublic: peer.signingKeyPublic)) == true else {
+                        break
+                    }
+                }
+                try processRelayedInnerMessage(inner, hopCount: 0)
 
             case .typing:
                 let payload = try wireBuilder.decodePayload(TypingMessage.self, from: message)

@@ -5,6 +5,7 @@
 // Created once and injected via @EnvironmentObject.
 
 import SwiftUI
+import UIKit
 import SophaxChatCore
 
 @MainActor
@@ -92,6 +93,11 @@ final class AppState: ObservableObject {
         try? chatManager?.messageStore.deleteConversation(peerID: peerID)
         messages.removeValue(forKey: peerID)
         unreadCounts.removeValue(forKey: peerID)
+    }
+
+    func deleteMessage(_ message: StoredMessage) {
+        try? chatManager?.messageStore.deleteMessage(id: message.id, peerID: message.peerID)
+        messages[message.peerID]?.removeAll { $0.id == message.id }
     }
 
     // MARK: - Blocking
@@ -218,6 +224,7 @@ extension AppState: ChatManagerDelegate {
         guard !blockedPeers.contains(peerID) else { return }
         appendMessage(message)
         unreadCounts[peerID, default: 0] += 1
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
     }
 
     func chatManager(_ manager: ChatManager, messageDelivered messageID: String, toPeer peerID: String) {

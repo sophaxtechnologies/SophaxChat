@@ -85,6 +85,8 @@ public enum WireMessageType: String, Codable, Sendable {
     case relay
     /// Typing indicator (unencrypted, metadata-only).
     case typing
+    /// Sealed sender — wraps an encrypted WireMessage so relay nodes cannot read the inner type or payload.
+    case sealed
 }
 
 // MARK: - Hello (Handshake)
@@ -205,6 +207,25 @@ public struct AckMessage: Codable, Sendable {
 
 public struct TypingMessage: Codable, Sendable {
     public let isTyping: Bool
+}
+
+// MARK: - Sealed Sender
+
+/// Wraps a WireMessage so that relay nodes cannot see the inner message type or payload.
+///
+/// Encryption scheme:
+///   1. Sender generates an ephemeral Curve25519 key pair (EK_s)
+///   2. sharedSecret = ECDH(EK_s_private, recipient_DH_public)
+///   3. sealingKey = HKDF-SHA256(sharedSecret, info="SophaxChat_SealedSender_v1", len=32)
+///   4. encryptedPayload = ChaCha20-Poly1305(sealingKey, JSON(innerWireMessage))
+///
+/// Only the intended recipient (who knows their DH private key) can decrypt.
+/// Relay nodes see only: origin, target, an ephemeral public key, and ciphertext.
+public struct SealedMessage: Codable, Sendable {
+    /// Sender's ephemeral Curve25519 public key (32 bytes) — one per sealed message.
+    public let ephemeralPublicKey: Data
+    /// ChaCha20-Poly1305 ciphertext: nonce(12B) + encrypted WireMessage JSON + tag(16B).
+    public let encryptedPayload: Data
 }
 
 // MARK: - WireMessage Builder

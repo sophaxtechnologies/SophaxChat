@@ -16,6 +16,7 @@ import CryptoKit
 public typealias RootKey = SymmetricKey
 public typealias ChainKey = SymmetricKey
 public typealias MessageKey = SymmetricKey
+public typealias HeaderKey = SymmetricKey
 
 // MARK: - DH Key Pair (X25519)
 
@@ -93,6 +94,17 @@ public enum CryptoConstants {
     public static let x3dhInfo     = Data("SophaxChat_X3DH_v1".utf8)
     public static let storageInfo  = Data("SophaxChat_Storage_v1".utf8)
     public static let sessionInfo  = Data("SophaxChat_Session_v1".utf8)
+
+    // Sealed sender KDF info string
+    public static let sealedSenderInfo = Data("SophaxChat_SealedSender_v1".utf8)
+
+    // Header encryption KDF info strings
+    /// Derives Alice's initial sending header key (HKs) from the X3DH shared secret.
+    /// Bob uses the same value as his initial receiving header key (HKr).
+    public static let hkAliceInfo  = Data("SophaxChat_HKAlice_v1".utf8)
+    /// Derives Bob's initial next-sending header key (NHKs) from the X3DH shared secret.
+    /// Alice uses the same value as her initial next-receiving header key (NHKr).
+    public static let nhkBobInfo   = Data("SophaxChat_NHKBob_v1".utf8)
 
     /// Maximum number of skipped message keys stored per session.
     /// Prevents memory exhaustion attacks.

@@ -112,6 +112,18 @@ public final class MessageStore: @unchecked Sendable {
         }
     }
 
+    /// Delete a single message by ID.
+    public func deleteMessage(id: String, peerID: String) throws {
+        var messages = (try? self.messages(forPeer: peerID)) ?? []
+        messages.removeAll { $0.id == id }
+        cache[peerID] = messages
+        if messages.isEmpty {
+            try? FileManager.default.removeItem(at: fileURL(for: peerID))
+        } else {
+            try saveToDisk(messages: messages, peerID: peerID)
+        }
+    }
+
     /// Delete all messages for a conversation.
     public func deleteConversation(peerID: String) throws {
         let url = fileURL(for: peerID)

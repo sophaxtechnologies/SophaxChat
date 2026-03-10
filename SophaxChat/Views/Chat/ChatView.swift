@@ -65,8 +65,10 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(messages) { message in
-                            MessageBubbleView(message: message)
-                                .id(message.id)
+                            MessageBubbleView(message: message, onDelete: {
+                                appState.deleteMessage(message)
+                            })
+                            .id(message.id)
                         }
                         // Typing indicator bubble
                         if appState.typingPeers.contains(peer.id) {
