@@ -37,13 +37,17 @@ enum DisappearingInterval: String, CaseIterable, Identifiable {
 
 struct ChatView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
     let peer: KnownPeer
 
     @State private var messageText: String = ""
     @State private var showingSafetyNumber = false
+    @State private var showingBlockConfirm = false
     @State private var disappearingInterval: DisappearingInterval = .off
     @FocusState private var isInputFocused: Bool
     @Namespace private var bottomAnchor
+
+    private var disappearingKey: String { "com.sophax.disappearingInterval.\(peer.id)" }
 
     private var messages: [StoredMessage] {
         appState.messages[peer.id] ?? []
@@ -77,6 +81,14 @@ struct ChatView: View {
                 }
                 .onAppear {
                     proxy.scrollTo("bottom", anchor: .bottom)
+                    appState.markAsRead(peerID: peer.id)
+                    if let saved = UserDefaults.standard.string(forKey: disappearingKey),
+                       let interval = DisappearingInterval(rawValue: saved) {
+                        disappearingInterval = interval
+                    }
+                }
+                .onChange(of: messages.count) { _, _ in
+                    appState.markAsRead(peerID: peer.id)
                 }
             }
 
@@ -133,6 +145,7 @@ struct ChatView: View {
                         ForEach(DisappearingInterval.allCases) { interval in
                             Button {
                                 disappearingInterval = interval
+                                UserDefaults.standard.set(interval.rawValue, forKey: disappearingKey)
                             } label: {
                                 if disappearingInterval == interval {
                                     Label(interval.rawValue, systemImage: "checkmark")
@@ -146,17 +159,40 @@ struct ChatView: View {
                             .foregroundStyle(disappearingInterval == .off ? .primary : .orange)
                     }
 
-                    // Safety number
-                    Button {
-                        showingSafetyNumber = true
+                    // Safety number + more actions
+                    Menu {
+                        Button {
+                            showingSafetyNumber = true
+                        } label: {
+                            Label("Verify Identity", systemImage: "checkmark.shield")
+                        }
+                        Divider()
+                        Button(role: .destructive) {
+                            showingBlockConfirm = true
+                        } label: {
+                            Label("Block \(peer.username)", systemImage: "nosign")
+                        }
                     } label: {
-                        Image(systemName: "checkmark.shield")
+                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }
         }
         .sheet(isPresented: $showingSafetyNumber) {
             SafetyNumberView(peer: peer)
+        }
+        .confirmationDialog(
+            "Block \(peer.username)?",
+            isPresented: $showingBlockConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Block", role: .destructive) {
+                appState.blockPeer(peerID: peer.id)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You won't receive messages from this person.")
         }
     }
 

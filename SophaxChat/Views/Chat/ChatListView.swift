@@ -9,19 +9,37 @@ import SophaxChatCore
 struct ChatListView: View {
     @EnvironmentObject var appState: AppState
     @State private var showingIdentity = false
+    @State private var peerToBlock: KnownPeer? = nil
 
     var body: some View {
         NavigationStack {
             List {
-                // Active conversations (peers with messages)
+                // Active conversations (peers with messages, not blocked)
                 let conversationPeers = appState.peers.filter {
-                    appState.messages[$0.id] != nil
+                    appState.messages[$0.id] != nil && !appState.isBlocked($0.id)
                 }
                 if !conversationPeers.isEmpty {
                     Section("Conversations") {
                         ForEach(conversationPeers) { peer in
                             NavigationLink(destination: ChatView(peer: peer)) {
-                                ConversationRow(peer: peer, messages: appState.messages[peer.id] ?? [])
+                                ConversationRow(
+                                    peer: peer,
+                                    messages: appState.messages[peer.id] ?? [],
+                                    unreadCount: appState.unreadCounts[peer.id] ?? 0
+                                )
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    appState.deleteConversation(peerID: peer.id)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                Button {
+                                    peerToBlock = peer
+                                } label: {
+                                    Label("Block", systemImage: "nosign")
+                                }
+                                .tint(.orange)
                             }
                         }
                     }
@@ -29,7 +47,9 @@ struct ChatListView: View {
 
                 // Online peers without conversations yet
                 let newPeers = appState.peers.filter {
-                    appState.messages[$0.id] == nil && appState.onlinePeers.contains($0.id)
+                    appState.messages[$0.id] == nil
+                    && appState.onlinePeers.contains($0.id)
+                    && !appState.isBlocked($0.id)
                 }
                 if !newPeers.isEmpty {
                     Section("Nearby") {
@@ -37,12 +57,20 @@ struct ChatListView: View {
                             NavigationLink(destination: ChatView(peer: peer)) {
                                 PeerRow(peer: peer, isOnline: true)
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    peerToBlock = peer
+                                } label: {
+                                    Label("Block", systemImage: "nosign")
+                                }
+                                .tint(.orange)
+                            }
                         }
                     }
                 }
 
                 // Empty state
-                if appState.peers.isEmpty {
+                if appState.peers.filter({ !appState.isBlocked($0.id) }).isEmpty {
                     Section {
                         VStack(spacing: 16) {
                             Image(systemName: "antenna.radiowaves.left.and.right")
@@ -72,9 +100,7 @@ struct ChatListView: View {
                     }
                 }
             }
-            .refreshable {
-                // MeshManager auto-discovers — nothing to refresh
-            }
+            .refreshable { }
         }
         .sheet(isPresented: $showingIdentity) {
             IdentityView()
@@ -87,6 +113,21 @@ struct ChatListView: View {
         } message: { msg in
             Text(msg)
         }
+        .confirmationDialog(
+            "Block \(peerToBlock?.username ?? "")?",
+            isPresented: Binding(get: { peerToBlock != nil }, set: { if !$0 { peerToBlock = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Block", role: .destructive) {
+                if let peer = peerToBlock {
+                    appState.blockPeer(peerID: peer.id)
+                }
+                peerToBlock = nil
+            }
+            Button("Cancel", role: .cancel) { peerToBlock = nil }
+        } message: {
+            Text("You won't receive messages from this person. This can be undone in Settings.")
+        }
     }
 }
 
@@ -95,6 +136,7 @@ struct ChatListView: View {
 struct ConversationRow: View {
     let peer: KnownPeer
     let messages: [StoredMessage]
+    let unreadCount: Int
 
     var lastMessage: StoredMessage? { messages.last }
 
@@ -104,7 +146,7 @@ struct ConversationRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(peer.username)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.subheadline.weight(unreadCount > 0 ? .bold : .semibold))
                     Spacer()
                     if let last = lastMessage {
                         Text(last.timestamp, style: .relative)
@@ -121,11 +163,20 @@ struct ConversationRow: View {
                         }
                         Text(last.body)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(unreadCount > 0 ? .primary : .secondary)
+                            .fontWeight(unreadCount > 0 ? .medium : .regular)
                             .lineLimit(1)
                     }
                     Spacer()
-                    if peer.isOnline {
+                    if unreadCount > 0 {
+                        Text("\(unreadCount)")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor)
+                            .clipShape(Capsule())
+                    } else if peer.isOnline {
                         Circle().fill(.green).frame(width: 8, height: 8)
                     }
                 }
@@ -165,7 +216,6 @@ struct PeerAvatar: View {
     let peer: KnownPeer
     let size: CGFloat
 
-    /// Generate a deterministic color from the peer's identity hash.
     private var avatarColor: Color {
         let hash = peer.id.prefix(6)
         let value = Int(hash, radix: 16) ?? 0
