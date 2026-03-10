@@ -87,6 +87,8 @@ public enum WireMessageType: String, Codable, Sendable {
     case typing
     /// Sealed sender — wraps an encrypted WireMessage so relay nodes cannot read the inner type or payload.
     case sealed
+    /// Read receipt — tells the sender that we have read their messages.
+    case readReceipt
 }
 
 // MARK: - Hello (Handshake)
@@ -129,28 +131,42 @@ public struct ChatMessagePayload: Codable, Sendable {
 /// Plaintext content encrypted inside the Double Ratchet ciphertext.
 /// This is the ONLY place where message text lives unencrypted — in memory during processing.
 public struct MessageContent: Codable, Sendable {
-    public let body:        String
-    public let type:        MessageType
-    public let replyToID:   String?
-    public let timestamp:   Date
+    public let body:               String
+    public let type:               MessageType
+    public let replyToID:          String?
+    public let timestamp:          Date
     /// nil = persistent; Date = auto-delete after this point
-    public let expiresAt:   Date?
+    public let expiresAt:          Date?
+    /// Binary attachment (JPEG image or M4A audio). Encrypted with the Double Ratchet.
+    public let attachmentData:     Data?
+    /// MIME type: "image/jpeg" | "audio/m4a"
+    public let attachmentMimeType: String?
+    /// Audio duration in seconds (nil for non-audio).
+    public let audioDuration:      Double?
 
     public enum MessageType: String, Codable, Sendable {
         case text
+        case image
+        case audio
     }
 
     public init(
-        body:      String,
-        type:      MessageType = .text,
-        replyToID: String? = nil,
-        expiresAt: Date? = nil
+        body:               String,
+        type:               MessageType = .text,
+        replyToID:          String?     = nil,
+        expiresAt:          Date?       = nil,
+        attachmentData:     Data?       = nil,
+        attachmentMimeType: String?     = nil,
+        audioDuration:      Double?     = nil
     ) {
-        self.body      = body
-        self.type      = type
-        self.replyToID = replyToID
-        self.timestamp = Date()
-        self.expiresAt = expiresAt
+        self.body               = body
+        self.type               = type
+        self.replyToID          = replyToID
+        self.timestamp          = Date()
+        self.expiresAt          = expiresAt
+        self.attachmentData     = attachmentData
+        self.attachmentMimeType = attachmentMimeType
+        self.audioDuration      = audioDuration
     }
 }
 
@@ -207,6 +223,19 @@ public struct AckMessage: Codable, Sendable {
 
 public struct TypingMessage: Codable, Sendable {
     public let isTyping: Bool
+}
+
+// MARK: - Read Receipt
+
+/// Sent when the local user views messages from a peer.
+/// Allows the sender to upgrade their delivery tick to a "read" indicator.
+public struct ReadReceiptMessage: Codable, Sendable {
+    /// IDs of the received messages being acknowledged as read.
+    public let messageIDs: [String]
+
+    public init(messageIDs: [String]) {
+        self.messageIDs = messageIDs
+    }
 }
 
 // MARK: - Sealed Sender
@@ -280,45 +309,57 @@ public struct WireMessageBuilder {
 
 /// A message persisted in the local encrypted store.
 public struct StoredMessage: Codable, Identifiable, Sendable {
-    public let id:        String
-    public let peerID:    String
-    public let direction: Direction
-    public let body:      String
-    public let timestamp: Date
-    public var status:    MessageStatus
-    public let replyToID: String?
-    public let expiresAt: Date?
+    public let id:                 String
+    public let peerID:             String
+    public let direction:          Direction
+    public let body:               String
+    public let timestamp:          Date
+    public var status:             MessageStatus
+    public let replyToID:          String?
+    public let expiresAt:          Date?
     /// Nil = delivered directly; >0 = relayed through N hops
-    public let hopCount:  UInt8?
+    public let hopCount:           UInt8?
+    /// Local file ID in AttachmentStore — nil means no attachment.
+    public let attachmentID:       String?
+    /// "image/jpeg" | "audio/m4a" — mirrors MessageContent.attachmentMimeType
+    public let attachmentMimeType: String?
+    /// Audio duration in seconds (nil for non-audio).
+    public let audioDuration:      Double?
 
     public enum Direction: String, Codable, Sendable {
         case sent, received
     }
 
     public enum MessageStatus: String, Codable, Sendable {
-        case sending, delivered, failed
+        case sending, delivered, failed, read
     }
 
     public init(
-        id:        String = UUID().uuidString,
-        peerID:    String,
-        direction: Direction,
-        body:      String,
-        timestamp: Date = Date(),
-        status:    MessageStatus = .sending,
-        replyToID: String? = nil,
-        expiresAt: Date? = nil,
-        hopCount:  UInt8? = nil
+        id:                 String          = UUID().uuidString,
+        peerID:             String,
+        direction:          Direction,
+        body:               String,
+        timestamp:          Date            = Date(),
+        status:             MessageStatus   = .sending,
+        replyToID:          String?         = nil,
+        expiresAt:          Date?           = nil,
+        hopCount:           UInt8?          = nil,
+        attachmentID:       String?         = nil,
+        attachmentMimeType: String?         = nil,
+        audioDuration:      Double?         = nil
     ) {
-        self.id        = id
-        self.peerID    = peerID
-        self.direction = direction
-        self.body      = body
-        self.timestamp = timestamp
-        self.status    = status
-        self.replyToID = replyToID
-        self.expiresAt = expiresAt
-        self.hopCount  = hopCount
+        self.id                 = id
+        self.peerID             = peerID
+        self.direction          = direction
+        self.body               = body
+        self.timestamp          = timestamp
+        self.status             = status
+        self.replyToID          = replyToID
+        self.expiresAt          = expiresAt
+        self.hopCount           = hopCount
+        self.attachmentID       = attachmentID
+        self.attachmentMimeType = attachmentMimeType
+        self.audioDuration      = audioDuration
     }
 }
 

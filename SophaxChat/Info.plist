@@ -24,6 +24,14 @@
 	<array>
 		<string>_sophax-chat._tcp</string>
 	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>SophaxChat uses Face ID to unlock the app when app lock is enabled.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>SophaxChat uses the camera to take and send photos in encrypted messages.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SophaxChat uses the microphone to record encrypted voice messages.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SophaxChat accesses your photo library to send images in encrypted messages.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>SophaxChat uses the local network to discover nearby users and send encrypted messages without internet.</string>
 	<key>UIBackgroundModes</key>

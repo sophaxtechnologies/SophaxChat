@@ -38,6 +38,10 @@ targets:
         CFBundleDisplayName: SophaxChat
         UILaunchScreen:
           UIColorName: "AccentColor"
+        NSFaceIDUsageDescription: "SophaxChat uses Face ID to unlock the app when app lock is enabled."
+        NSCameraUsageDescription: "SophaxChat uses the camera to take and send photos in encrypted messages."
+        NSMicrophoneUsageDescription: "SophaxChat uses the microphone to record encrypted voice messages."
+        NSPhotoLibraryUsageDescription: "SophaxChat accesses your photo library to send images in encrypted messages."
         NSLocalNetworkUsageDescription: "SophaxChat uses the local network to discover nearby users and send encrypted messages without internet."
         NSBonjourServices:
           - "_sophax-chat._tcp"

@@ -19,9 +19,11 @@ struct SophaxChatApp: App {
                 // (reduces the risk of sensitive content being captured by iOS)
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
                     appState.isBlurred = true
+                    appState.lockApp()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     appState.isBlurred = false
+                    // AppLockView.onAppear handles unlock attempt automatically
                 }
         }
     }
@@ -48,7 +50,15 @@ struct RootView: View {
                     .ignoresSafeArea()
                     .transition(.opacity)
             }
+
+            // App lock overlay
+            if appState.isAppLocked {
+                AppLockView()
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.15), value: appState.isBlurred)
+        .animation(.easeInOut(duration: 0.2), value: appState.isAppLocked)
     }
 }

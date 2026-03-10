@@ -6,6 +6,8 @@
 
 import SwiftUI
 import UIKit
+import AVFoundation
+import LocalAuthentication
 import SophaxChatCore
 
 @MainActor
@@ -15,12 +17,14 @@ final class AppState: ObservableObject {
 
     @Published var isSetupComplete: Bool = false
     @Published var isBlurred: Bool       = false
+    @Published var isAppLocked: Bool     = false
     @Published var peers:        [KnownPeer] = []
     @Published var messages:     [String: [StoredMessage]] = [:]  // peerID → messages
     @Published var onlinePeers:  Set<String> = []
     @Published var blockedPeers: Set<String> = []
     @Published var unreadCounts: [String: Int] = [:]
     @Published var typingPeers:  Set<String> = []
+    @Published var peerAliases:  [String: String] = [:]
     @Published var errorMessage: String? = nil
 
     /// Username cache for blocked peers (persisted so they're still readable after restart).
@@ -37,6 +41,7 @@ final class AppState: ObservableObject {
     init() {
         loadSavedPeers()
         loadBlockedPeers()
+        loadAliases()
         if keychain.hasIdentity() {
             setupChatManager(username: nil)
         }
@@ -50,20 +55,22 @@ final class AppState: ObservableObject {
 
     private func setupChatManager(username: String?) {
         do {
-            let identity = try IdentityManager(keychain: keychain)
+            let identity     = try IdentityManager(keychain: keychain)
             if let username {
                 try identity.setUsername(username)
             }
-            let preKeys  = try PreKeyManager(identity: identity, keychain: keychain)
-            let mesh     = MeshManager(localIdentityHash: identity.publicIdentity.peerID)
-            let store    = try MessageStore(keychain: keychain)
+            let preKeys      = try PreKeyManager(identity: identity, keychain: keychain)
+            let mesh         = MeshManager(localIdentityHash: identity.publicIdentity.peerID)
+            let store        = try MessageStore(keychain: keychain)
+            let attachStore  = try AttachmentStore(keychain: keychain)
 
             let manager = ChatManager(
-                identity:     identity,
-                preKeys:      preKeys,
-                mesh:         mesh,
-                messageStore: store,
-                keychain:     keychain
+                identity:        identity,
+                preKeys:         preKeys,
+                mesh:            mesh,
+                messageStore:    store,
+                attachmentStore: attachStore,
+                keychain:        keychain
             )
             manager.delegate = self
             manager.start()
@@ -79,12 +86,37 @@ final class AppState: ObservableObject {
 
     // MARK: - Message sending
 
-    func sendMessage(_ text: String, toPeerID peerID: String, expiresAt: Date? = nil) {
-        chatManager?.sendMessage(text, toPeerID: peerID, expiresAt: expiresAt)
+    func sendMessage(_ text: String, toPeerID peerID: String, expiresAt: Date? = nil, replyToID: String? = nil) {
+        chatManager?.sendMessage(text, toPeerID: peerID, expiresAt: expiresAt, replyToID: replyToID)
     }
 
     func sendTypingIndicator(toPeerID peerID: String, isTyping: Bool) {
         chatManager?.sendTypingIndicator(toPeerID: peerID, isTyping: isTyping)
+    }
+
+    /// Compress `image` to JPEG under 400 KB and send as an encrypted attachment.
+    func sendImage(_ image: UIImage, toPeerID peerID: String, expiresAt: Date? = nil) {
+        var quality: CGFloat = 0.75
+        var jpegData: Data? = image.jpegData(compressionQuality: quality)
+        while let d = jpegData, d.count > 400_000, quality > 0.1 {
+            quality -= 0.1
+            jpegData = image.jpegData(compressionQuality: quality)
+        }
+        guard let data = jpegData else { return }
+        chatManager?.sendAttachment(data, mimeType: "image/jpeg", toPeerID: peerID, expiresAt: expiresAt)
+    }
+
+    /// Send a recorded M4A audio clip as an encrypted attachment.
+    func sendAudio(_ data: Data, duration: Double, toPeerID peerID: String, expiresAt: Date? = nil) {
+        chatManager?.sendAttachment(
+            data, mimeType: "audio/m4a", audioDuration: duration,
+            toPeerID: peerID, expiresAt: expiresAt
+        )
+    }
+
+    /// Load attachment data from the local encrypted store (used by bubble views).
+    func loadAttachment(id: String) -> Data? {
+        try? chatManager?.attachmentStore.load(id: id)
     }
 
     // MARK: - Conversation management
@@ -129,6 +161,54 @@ final class AppState: ObservableObject {
 
     func markAsRead(peerID: String) {
         unreadCounts[peerID] = 0
+        // Send read receipts for received messages still showing as .delivered
+        let unread = messages[peerID]?.filter { $0.direction == .received && $0.status == .delivered } ?? []
+        if !unread.isEmpty {
+            chatManager?.sendReadReceipts(messageIDs: unread.map(\.id), toPeerID: peerID)
+        }
+    }
+
+    // MARK: - Contact aliases
+
+    func displayName(for peer: KnownPeer) -> String {
+        peerAliases[peer.id] ?? peer.username
+    }
+
+    func setAlias(_ alias: String?, for peerID: String) {
+        let trimmed = alias?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name = trimmed, !name.isEmpty {
+            peerAliases[peerID] = name
+        } else {
+            peerAliases.removeValue(forKey: peerID)
+        }
+        saveAliases()
+    }
+
+    // MARK: - App lock
+
+    var appLockEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "com.sophax.appLockEnabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "com.sophax.appLockEnabled") }
+    }
+
+    func lockApp() {
+        guard appLockEnabled else { return }
+        isAppLocked = true
+    }
+
+    func tryUnlock() {
+        let ctx = LAContext()
+        var error: NSError?
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
+            isAppLocked = false   // No biometrics + no passcode configured — just unlock
+            return
+        }
+        ctx.evaluatePolicy(.deviceOwnerAuthentication,
+                           localizedReason: "Unlock SophaxChat") { success, _ in
+            DispatchQueue.main.async { [weak self] in
+                if success { self?.isAppLocked = false }
+            }
+        }
     }
 
     // MARK: - Private helpers
@@ -169,6 +249,22 @@ final class AppState: ObservableObject {
     private func savePeers() {
         if let data = try? JSONEncoder().encode(peers) {
             UserDefaults.standard.set(data, forKey: peersDefaultsKey)
+        }
+    }
+
+    // MARK: - Alias persistence
+
+    private let aliasesKey = "com.sophax.peerAliases"
+
+    private func loadAliases() {
+        guard let data = UserDefaults.standard.data(forKey: aliasesKey),
+              let saved = try? JSONDecoder().decode([String: String].self, from: data) else { return }
+        peerAliases = saved
+    }
+
+    private func saveAliases() {
+        if let data = try? JSONEncoder().encode(peerAliases) {
+            UserDefaults.standard.set(data, forKey: aliasesKey)
         }
     }
 
@@ -230,6 +326,14 @@ extension AppState: ChatManagerDelegate {
     func chatManager(_ manager: ChatManager, messageDelivered messageID: String, toPeer peerID: String) {
         if let idx = messages[peerID]?.firstIndex(where: { $0.id == messageID }) {
             messages[peerID]?[idx].status = .delivered
+        }
+    }
+
+    func chatManager(_ manager: ChatManager, messagesRead messageIDs: [String], byPeer peerID: String) {
+        for messageID in messageIDs {
+            if let idx = messages[peerID]?.firstIndex(where: { $0.id == messageID }) {
+                messages[peerID]?[idx].status = .read
+            }
         }
     }
 

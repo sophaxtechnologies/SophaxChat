@@ -6,6 +6,8 @@
 import SwiftUI
 import SophaxChatCore
 import CoreImage.CIFilterBuiltins
+import PhotosUI
+import AVFoundation
 
 // MARK: - Disappearing messages interval
 
@@ -48,6 +50,21 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
     @Namespace private var bottomAnchor
 
+    // Attachment / camera
+    @State private var showingAttachMenu   = false
+    @State private var photoPickerItem:    PhotosPickerItem? = nil
+    @State private var showingCamera       = false
+
+    // PTT recording
+    @StateObject private var voiceRecorder = VoiceRecorder()
+
+    // Reply
+    @State private var replyingTo: StoredMessage? = nil
+
+    // Rename contact
+    @State private var showingRenameAlert = false
+    @State private var renameText: String = ""
+
     private var disappearingKey: String { "com.sophax.disappearingInterval.\(peer.id)" }
 
     private var messages: [StoredMessage] {
@@ -65,9 +82,11 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(messages) { message in
-                            MessageBubbleView(message: message, onDelete: {
-                                appState.deleteMessage(message)
-                            })
+                            MessageBubbleView(
+                                message: message,
+                                onDelete: { appState.deleteMessage(message) },
+                                onReply:  { withAnimation { replyingTo = message } }
+                            )
                             .id(message.id)
                         }
                         // Typing indicator bubble
@@ -109,6 +128,34 @@ struct ChatView: View {
 
             Divider()
 
+            // Reply preview bar
+            if let replying = replyingTo {
+                HStack(spacing: 10) {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: 3)
+                        .clipShape(Capsule())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(replying.direction == .sent ? "Reply to yourself" : "Reply to \(appState.displayName(for: peer))")
+                            .font(.caption.bold())
+                            .foregroundStyle(.accentColor)
+                        Text(replying.body)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Button { withAnimation { replyingTo = nil } } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.bar)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             // Disappearing messages indicator
             if disappearingInterval != .off {
                 HStack(spacing: 4) {
@@ -123,7 +170,29 @@ struct ChatView: View {
             }
 
             // Input bar
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
+                // ── Attachment button ─────────────────────────────────────────
+                PhotosPicker(
+                    selection: $photoPickerItem,
+                    matching: .images
+                ) {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.secondary)
+                }
+                .onChange(of: photoPickerItem) { _, item in
+                    guard let item else { return }
+                    Task {
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let image = UIImage(data: data) {
+                            appState.sendImage(image, toPeerID: peer.id,
+                                               expiresAt: disappearingInterval.seconds.map { Date().addingTimeInterval($0) })
+                        }
+                        photoPickerItem = nil
+                    }
+                }
+
+                // ── Text field ────────────────────────────────────────────────
                 TextField("Message", text: $messageText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.body)
@@ -146,19 +215,60 @@ struct ChatView: View {
                         }
                     }
 
-                Button(action: sendMessage) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 30))
-                        .foregroundStyle(canSend ? Color.accentColor : Color.accentColor.opacity(0.3))
+                // ── Send button OR PTT ────────────────────────────────────────
+                if canSend {
+                    Button(action: sendMessage) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                } else {
+                    // Hold-to-record PTT button
+                    ZStack {
+                        Circle()
+                            .fill(voiceRecorder.isRecording
+                                  ? Color.red.opacity(0.15)
+                                  : Color.clear)
+                            .frame(width: 36, height: 36)
+                            .animation(.easeInOut(duration: 0.2), value: voiceRecorder.isRecording)
+
+                        Image(systemName: voiceRecorder.isRecording ? "waveform" : "mic")
+                            .font(.system(size: 20))
+                            .foregroundStyle(voiceRecorder.isRecording ? .red : .secondary)
+                            .symbolEffect(.pulse, isActive: voiceRecorder.isRecording)
+                    }
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in
+                                guard !voiceRecorder.isRecording else { return }
+                                voiceRecorder.start()
+                            }
+                            .onEnded { _ in
+                                voiceRecorder.stop { data, duration in
+                                    guard let data else { return }
+                                    let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
+                                    appState.sendAudio(data, duration: duration, toPeerID: peer.id, expiresAt: expiresAt)
+                                }
+                            }
+                    )
                 }
-                .disabled(!canSend)
-                .animation(.easeInOut, value: canSend)
             }
+            .animation(.easeInOut(duration: 0.15), value: canSend)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(.bar)
+            .sheet(isPresented: $showingCamera) {
+                CameraPickerView { image in
+                    guard let image else { return }
+                    let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
+                    appState.sendImage(image, toPeerID: peer.id, expiresAt: expiresAt)
+                }
+            }
         }
-        .navigationTitle(peer.username)
+        .navigationTitle(appState.displayName(for: peer))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -197,6 +307,12 @@ struct ChatView: View {
                         } label: {
                             Label("Verify Identity", systemImage: "checkmark.shield")
                         }
+                        Button {
+                            renameText = appState.peerAliases[peer.id] ?? ""
+                            showingRenameAlert = true
+                        } label: {
+                            Label("Rename Contact", systemImage: "pencil")
+                        }
                         Divider()
                         Button(role: .destructive) {
                             showingBlockConfirm = true
@@ -225,6 +341,15 @@ struct ChatView: View {
         } message: {
             Text("You won't receive messages from this person.")
         }
+        .alert("Rename Contact", isPresented: $showingRenameAlert) {
+            TextField("Name", text: $renameText)
+                .autocorrectionDisabled()
+            Button("Save") { appState.setAlias(renameText.isEmpty ? nil : renameText, for: peer.id) }
+            Button("Reset") { appState.setAlias(nil, for: peer.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Set a custom name for \(peer.username).")
+        }
     }
 
     private var canSend: Bool {
@@ -238,9 +363,11 @@ struct ChatView: View {
         typingTask?.cancel()
         typingTask = nil
         appState.sendTypingIndicator(toPeerID: peer.id, isTyping: false)
+        let reply = replyingTo
         messageText = ""
+        withAnimation { replyingTo = nil }
         let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
-        appState.sendMessage(text, toPeerID: peer.id, expiresAt: expiresAt)
+        appState.sendMessage(text, toPeerID: peer.id, expiresAt: expiresAt, replyToID: reply?.id)
     }
 }
 

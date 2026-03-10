@@ -51,6 +51,21 @@ struct SettingsView: View {
                     Text("Blocked users cannot send you messages. Unblocking allows future messages if they are nearby.")
                 }
 
+                // App lock
+                Section {
+                    Toggle("App Lock", isOn: Binding(
+                        get: { appState.appLockEnabled },
+                        set: { enabled in
+                            appState.appLockEnabled = enabled
+                            if !enabled { appState.isAppLocked = false }
+                        }
+                    ))
+                } header: {
+                    Text("Security")
+                } footer: {
+                    Text("Require Face ID, Touch ID, or passcode to open SophaxChat.")
+                }
+
                 // App info
                 Section {
                     HStack {

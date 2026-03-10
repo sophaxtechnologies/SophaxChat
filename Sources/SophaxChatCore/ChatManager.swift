@@ -80,6 +80,8 @@ public protocol ChatManagerDelegate: AnyObject {
     func chatManager(_ manager: ChatManager, didEncounterError error: Error)
     /// The remote peer's typing state changed.
     func chatManager(_ manager: ChatManager, peerDidUpdateTyping peerID: String, isTyping: Bool)
+    /// The remote peer has read one or more messages we sent.
+    func chatManager(_ manager: ChatManager, messagesRead messageIDs: [String], byPeer peerID: String)
 }
 
 // MARK: - ChatManager
@@ -88,14 +90,15 @@ public final class ChatManager: @unchecked Sendable {
 
     // MARK: - Sub-components
 
-    public let identity:     IdentityManager
-    public let preKeys:      PreKeyManager
-    public let mesh:         MeshManager
-    public let messageStore: MessageStore
+    public let identity:        IdentityManager
+    public let preKeys:         PreKeyManager
+    public let mesh:            MeshManager
+    public let messageStore:    MessageStore
+    public let attachmentStore: AttachmentStore
 
-    private let keychain:    KeychainManager
-    private let wireBuilder: WireMessageBuilder
-    private let relayRouter: RelayRouter
+    private let keychain:       KeychainManager
+    private let wireBuilder:    WireMessageBuilder
+    private let relayRouter:    RelayRouter
 
     // MARK: - State
 
@@ -126,20 +129,22 @@ public final class ChatManager: @unchecked Sendable {
     // MARK: - Init
 
     public init(
-        identity:     IdentityManager,
-        preKeys:      PreKeyManager,
-        mesh:         MeshManager,
-        messageStore: MessageStore,
-        keychain:     KeychainManager
+        identity:        IdentityManager,
+        preKeys:         PreKeyManager,
+        mesh:            MeshManager,
+        messageStore:    MessageStore,
+        attachmentStore: AttachmentStore,
+        keychain:        KeychainManager
     ) {
-        self.identity     = identity
-        self.preKeys      = preKeys
-        self.mesh         = mesh
-        self.messageStore = messageStore
-        self.keychain     = keychain
-        self.wireBuilder  = WireMessageBuilder(identity: identity)
-        self.relayRouter  = RelayRouter()
-        mesh.delegate     = self
+        self.identity        = identity
+        self.preKeys         = preKeys
+        self.mesh            = mesh
+        self.messageStore    = messageStore
+        self.attachmentStore = attachmentStore
+        self.keychain        = keychain
+        self.wireBuilder     = WireMessageBuilder(identity: identity)
+        self.relayRouter     = RelayRouter()
+        mesh.delegate        = self
     }
 
     // MARK: - Public API
@@ -172,8 +177,11 @@ public final class ChatManager: @unchecked Sendable {
         messageStore.deleteExpiredMessages()
     }
 
-    /// Maximum message body length in UTF-8 bytes.
-    public static let maxMessageBytes = 65_536   // 64 KB
+    /// Maximum text message body length in UTF-8 bytes.
+    public static let maxMessageBytes = 65_536       // 64 KB
+
+    /// Maximum binary attachment size (image, audio) in bytes.
+    public static let maxAttachmentBytes = 524_288   // 512 KB
 
     /// Maximum number of outbound messages queued per offline peer.
     /// Prevents memory exhaustion if a peer never reconnects.
@@ -191,7 +199,7 @@ public final class ChatManager: @unchecked Sendable {
     ///   - Existing session: sends `.message` (Double Ratchet)
     ///   - Peer reachable via relay: wraps in `RelayEnvelope`
     ///   - No connectivity: queues for later delivery
-    public func sendMessage(_ text: String, toPeerID peerID: String, expiresAt: Date? = nil) {
+    public func sendMessage(_ text: String, toPeerID peerID: String, expiresAt: Date? = nil, replyToID: String? = nil) {
         guard !text.isEmpty, text.utf8.count <= Self.maxMessageBytes else {
             delegate?.chatManager(self, didEncounterError:
                 SophaxError.invalidMessageFormat("Message must be 1–65536 bytes"))
@@ -200,7 +208,8 @@ public final class ChatManager: @unchecked Sendable {
         let messageID = UUID().uuidString
         let stored = StoredMessage(
             id: messageID, peerID: peerID,
-            direction: .sent, body: text, status: .sending
+            direction: .sent, body: text, status: .sending,
+            replyToID: replyToID
         )
         do {
             try messageStore.append(message: stored)
@@ -209,17 +218,80 @@ public final class ChatManager: @unchecked Sendable {
             return
         }
 
-        // Notify the UI immediately so the sent message appears in the chat view
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.chatManager(self, didSendMessage: stored, toPeer: peerID)
         }
 
         do {
-            let wire = try buildOutboundWire(
-                text: text, messageID: messageID,
-                toPeerID: peerID, expiresAt: expiresAt
+            let content = MessageContent(body: text, replyToID: replyToID, expiresAt: expiresAt)
+            let wire = try buildOutboundWire(content: content, messageID: messageID, toPeerID: peerID)
+            try sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
+        } catch {
+            try? messageStore.updateStatus(.failed, forMessageID: messageID, peerID: peerID)
+            delegate?.chatManager(self, didEncounterError: error)
+        }
+    }
+
+    /// Send read receipts for messages the local user has viewed.
+    /// Best-effort: uses direct / relay / offline-queue routing.
+    public func sendReadReceipts(messageIDs: [String], toPeerID peerID: String) {
+        guard !messageIDs.isEmpty else { return }
+        let payload = ReadReceiptMessage(messageIDs: messageIDs)
+        guard let wire = try? wireBuilder.build(.readReceipt, payload: payload) else { return }
+        try? sendOrQueue(wire, toPeerID: peerID, messageID: UUID().uuidString)
+    }
+
+    /// Send a binary attachment (image or audio) to `peerID`.
+    public func sendAttachment(
+        _ data: Data,
+        mimeType: String,
+        caption: String = "",
+        audioDuration: Double? = nil,
+        toPeerID peerID: String,
+        expiresAt: Date? = nil
+    ) {
+        guard data.count <= Self.maxAttachmentBytes else {
+            delegate?.chatManager(self, didEncounterError:
+                SophaxError.invalidMessageFormat("Attachment exceeds 512 KB limit"))
+            return
+        }
+
+        let messageID    = UUID().uuidString
+        let attachmentID = UUID().uuidString
+        let msgType: MessageContent.MessageType = mimeType.hasPrefix("image/") ? .image : .audio
+        let displayBody  = caption.isEmpty
+            ? (msgType == .image ? "📷 Photo" : "🎤 Voice message")
+            : caption
+
+        // Save attachment locally for the sender's own bubble
+        try? attachmentStore.save(data, id: attachmentID)
+
+        let stored = StoredMessage(
+            id: messageID, peerID: peerID,
+            direction: .sent, body: displayBody, status: .sending,
+            attachmentID: attachmentID, attachmentMimeType: mimeType,
+            audioDuration: audioDuration
+        )
+        do {
+            try messageStore.append(message: stored)
+        } catch {
+            delegate?.chatManager(self, didEncounterError: error)
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didSendMessage: stored, toPeer: peerID)
+        }
+
+        do {
+            let content = MessageContent(
+                body: caption, type: msgType, expiresAt: expiresAt,
+                attachmentData: data, attachmentMimeType: mimeType,
+                audioDuration: audioDuration
             )
+            let wire = try buildOutboundWire(content: content, messageID: messageID, toPeerID: peerID)
             try sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
         } catch {
             try? messageStore.updateStatus(.failed, forMessageID: messageID, peerID: peerID)
@@ -246,21 +318,20 @@ public final class ChatManager: @unchecked Sendable {
 
     // MARK: - Private: Build outbound wire message
 
-    /// Constructs the correct WireMessage for the given peer.
+    /// Encrypt `content` and return the wire message for `peerID`.
     ///
-    /// - If a session already exists (memory or Keychain): returns `.message`
-    /// - If no session but bundle known: performs X3DH, returns `.initiateSession`
-    /// - If no bundle yet: throws `sessionNotInitialized` (caller queues the message)
+    /// - Existing session → `.message`
+    /// - No session + bundle known → X3DH + `.initiateSession`
+    /// - No bundle yet → throws `sessionNotInitialized` (caller queues)
     private func buildOutboundWire(
-        text: String, messageID: String,
-        toPeerID peerID: String, expiresAt: Date?
+        content: MessageContent,
+        messageID: String,
+        toPeerID peerID: String
     ) throws -> WireMessage {
-        let content   = MessageContent(body: text, expiresAt: expiresAt)
         let plaintext = try JSONEncoder().encode(content)
         let ad        = associatedData(peerID: peerID)
 
         // ── Case 1: existing session ──────────────────────────────────────────
-        // withSession returns nil (not throws) when no session exists yet.
         if let ratchetMsg = try withSession(peerID: peerID, { ratchet in
             try ratchet.encrypt(plaintext: plaintext, associatedData: ad)
         }) {
@@ -270,27 +341,20 @@ public final class ChatManager: @unchecked Sendable {
 
         // ── Case 2: new session — need peer's PreKeyBundle for X3DH ──────────
         guard let bundle = peerBundles[peerID] else {
-            // Bundle not yet received — caller should queue and retry after Hello
             throw SophaxError.sessionNotInitialized
         }
 
-        // X3DH: Alice (sender) side
         let x3dhResult = try X3DH.initiateSender(
             senderIdentity:  identity.dhKeyPair,
             recipientBundle: bundle
         )
-
-        // Double Ratchet: Alice starts as initiator
         let ratchet = try DoubleRatchet.initAsInitiator(
             sharedSecret:           x3dhResult.sharedSecret,
             remoteRatchetPublicKey: bundle.signedPreKeyPublic
         )
-
-        // Encrypt the first message inside the session initiation envelope
         let ratchetMsg = try ratchet.encrypt(plaintext: plaintext, associatedData: ad)
         try storeNewSession(ratchet, peerID: peerID)
 
-        // Alice's own bundle (Bob needs it to verify the X3DH and future messages)
         let senderBundle = try preKeys.generateBundle()
         let initPayload  = InitiateSessionMessage(
             senderBundle:        senderBundle,
@@ -478,6 +542,20 @@ public final class ChatManager: @unchecked Sendable {
         let plaintext = try ratchet.decrypt(message: payload.initialMessage, associatedData: ad)
         let content   = try JSONDecoder().decode(MessageContent.self, from: plaintext)
 
+        var attachmentID: String? = nil
+        if let attachData = content.attachmentData, content.attachmentMimeType != nil {
+            let id = UUID().uuidString
+            try? attachmentStore.save(attachData, id: id)
+            attachmentID = id
+        }
+
+        let displayBody: String
+        switch content.type {
+        case .text:  displayBody = content.body
+        case .image: displayBody = content.body.isEmpty ? "📷 Photo" : content.body
+        case .audio: displayBody = content.body.isEmpty ? "🎤 Voice message" : content.body
+        }
+
         try storeNewSession(ratchet, peerID: peerID)
 
         // Register the peer
@@ -487,11 +565,14 @@ public final class ChatManager: @unchecked Sendable {
         knownPeers[peerID] = peer
 
         let stored = StoredMessage(
-            peerID:    peerID,
-            direction: .received,
-            body:      content.body,
-            status:    .delivered,
-            expiresAt: clampedExpiry(content.expiresAt)
+            peerID:             peerID,
+            direction:          .received,
+            body:               displayBody,
+            status:             .delivered,
+            expiresAt:          clampedExpiry(content.expiresAt),
+            attachmentID:       attachmentID,
+            attachmentMimeType: content.attachmentMimeType,
+            audioDuration:      content.audioDuration
         )
         try messageStore.append(message: stored)
 
@@ -518,14 +599,32 @@ public final class ChatManager: @unchecked Sendable {
 
         let content = try JSONDecoder().decode(MessageContent.self, from: plaintext)
 
+        // Save attachment to local store (decrypted data is ephemeral after this)
+        var attachmentID: String? = nil
+        if let attachData = content.attachmentData, content.attachmentMimeType != nil {
+            let id = UUID().uuidString
+            try? attachmentStore.save(attachData, id: id)
+            attachmentID = id
+        }
+
+        let displayBody: String
+        switch content.type {
+        case .text:  displayBody = content.body
+        case .image: displayBody = content.body.isEmpty ? "📷 Photo" : content.body
+        case .audio: displayBody = content.body.isEmpty ? "🎤 Voice message" : content.body
+        }
+
         let stored = StoredMessage(
-            id:        payload.messageID,
-            peerID:    peerID,
-            direction: .received,
-            body:      content.body,
-            status:    .delivered,
-            expiresAt: clampedExpiry(content.expiresAt),
-            hopCount:  hopCount
+            id:                 payload.messageID,
+            peerID:             peerID,
+            direction:          .received,
+            body:               displayBody,
+            status:             .delivered,
+            expiresAt:          clampedExpiry(content.expiresAt),
+            hopCount:           hopCount,
+            attachmentID:       attachmentID,
+            attachmentMimeType: content.attachmentMimeType,
+            audioDuration:      content.audioDuration
         )
         try messageStore.append(message: stored)
 
@@ -550,6 +649,16 @@ public final class ChatManager: @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.chatManager(self, messageDelivered: payload.messageID, toPeer: peerID)
+        }
+    }
+
+    private func handleReadReceipt(_ payload: ReadReceiptMessage, fromPeer peerID: String) {
+        for id in payload.messageIDs {
+            try? messageStore.updateStatus(.read, forMessageID: id, peerID: peerID)
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, messagesRead: payload.messageIDs, byPeer: peerID)
         }
     }
 
@@ -613,6 +722,10 @@ public final class ChatManager: @unchecked Sendable {
         case .ack:
             let payload = try wireBuilder.decodePayload(AckMessage.self, from: message)
             handleAck(payload, fromPeer: message.senderID)
+
+        case .readReceipt:
+            let payload = try wireBuilder.decodePayload(ReadReceiptMessage.self, from: message)
+            handleReadReceipt(payload, fromPeer: message.senderID)
 
         case .sealed:
             let sealed = try wireBuilder.decodePayload(SealedMessage.self, from: message)
@@ -747,6 +860,10 @@ extension ChatManager: MeshManagerDelegate {
             case .ack:
                 let payload = try wireBuilder.decodePayload(AckMessage.self, from: message)
                 handleAck(payload, fromPeer: message.senderID)
+
+            case .readReceipt:
+                let payload = try wireBuilder.decodePayload(ReadReceiptMessage.self, from: message)
+                handleReadReceipt(payload, fromPeer: message.senderID)
 
             case .relay:
                 let envelope = try wireBuilder.decodePayload(RelayEnvelope.self, from: message)

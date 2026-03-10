@@ -145,6 +145,7 @@ struct ChatListView: View {
 // MARK: - Conversation Row
 
 struct ConversationRow: View {
+    @EnvironmentObject var appState: AppState
     let peer: KnownPeer
     let messages: [StoredMessage]
     let unreadCount: Int
@@ -156,7 +157,7 @@ struct ConversationRow: View {
             PeerAvatar(peer: peer, size: 48)
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text(peer.username)
+                    Text(appState.displayName(for: peer))
                         .font(.subheadline.weight(unreadCount > 0 ? .bold : .semibold))
                     Spacer()
                     if let last = lastMessage {
@@ -168,9 +169,7 @@ struct ConversationRow: View {
                 HStack {
                     if let last = lastMessage {
                         if last.direction == .sent {
-                            Image(systemName: last.status == .delivered ? "checkmark.circle.fill" : "clock")
-                                .font(.caption2)
-                                .foregroundStyle(last.status == .delivered ? .green : .secondary)
+                            statusIcon(for: last.status)
                         }
                         Text(last.body)
                             .font(.subheadline)
@@ -195,11 +194,26 @@ struct ConversationRow: View {
         }
         .padding(.vertical, 4)
     }
+
+    @ViewBuilder
+    private func statusIcon(for status: StoredMessage.MessageStatus) -> some View {
+        switch status {
+        case .sending:
+            Image(systemName: "clock").font(.caption2).foregroundStyle(.secondary)
+        case .delivered:
+            Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(.green)
+        case .read:
+            Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(.accentColor)
+        case .failed:
+            Image(systemName: "exclamationmark.circle").font(.caption2).foregroundStyle(.red)
+        }
+    }
 }
 
 // MARK: - Peer Row (no messages yet)
 
 struct PeerRow: View {
+    @EnvironmentObject var appState: AppState
     let peer: KnownPeer
     let isOnline: Bool
 
@@ -207,7 +221,7 @@ struct PeerRow: View {
         HStack(spacing: 12) {
             PeerAvatar(peer: peer, size: 40)
             VStack(alignment: .leading, spacing: 2) {
-                Text(peer.username)
+                Text(appState.displayName(for: peer))
                     .font(.subheadline.weight(.medium))
                 Text("Tap to send a message")
                     .font(.caption)

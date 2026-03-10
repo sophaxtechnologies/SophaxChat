@@ -299,23 +299,31 @@ Do not open public issues for security bugs.
 
 ### v0.3 — Short-term
 - [x] QR code Safety Number scanner
-- [ ] Push-to-talk (voice messages, encrypted)
-- [ ] Image sharing (encrypted, ephemeral)
+- [x] Push-to-talk (voice messages, AAC M4A, encrypted)
+- [x] Image sharing (encrypted, tap-to-zoom, PhotosPicker + camera)
 - [x] Unread message badges
 - [x] Delete conversation + block peer
 
 ### v0.4 — Security hardening
-- [ ] **Header encryption** (Double Ratchet extension — hides metadata)
-- [ ] **Sealed sender** (hides sender identity from relay nodes)
+- [x] **Header encryption** (Double Ratchet extension — hides metadata)
+- [x] **Sealed sender** (hides sender identity from relay nodes)
 - [x] Rate limiting on relay forwarding (20 relays / 10s per peer)
 - [x] Per-peer session initiation deduplication
 
-### v0.5 — Platform
+### v0.5 — UX & messaging features
+- [x] Reply to message (quoted bubble, context menu)
+- [x] Read receipts (blue tick when recipient reads)
+- [x] App lock (Face ID / Touch ID / passcode, auto-lock on background)
+- [x] Contact renaming (custom display names, persisted locally)
+- [ ] Local push notifications (when app is backgrounded)
+- [ ] Message reactions (emoji, long-press)
+
+### v0.6 — Platform
 - [ ] macOS support (Catalyst / native AppKit)
 - [ ] Background operation (BLE central/peripheral mode)
 - [ ] Custom MCSession transport adapter (pluggable: LoRa, audio covert channel)
 
-### v0.6 — Group messaging
+### v0.7 — Group messaging
 - [ ] Group sessions (Sender Keys protocol or MLS)
 - [ ] Channel discovery (broadcast announcements)
 
