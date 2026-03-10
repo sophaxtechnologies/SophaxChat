@@ -14,9 +14,11 @@ final class AppState: ObservableObject {
 
     @Published var isSetupComplete: Bool = false
     @Published var isBlurred: Bool       = false
-    @Published var peers:    [KnownPeer] = []
-    @Published var messages: [String: [StoredMessage]] = [:]  // peerID → messages
-    @Published var onlinePeers: Set<String> = []
+    @Published var peers:        [KnownPeer] = []
+    @Published var messages:     [String: [StoredMessage]] = [:]  // peerID → messages
+    @Published var onlinePeers:  Set<String> = []
+    @Published var blockedPeers: Set<String> = []
+    @Published var unreadCounts: [String: Int] = [:]
     @Published var errorMessage: String? = nil
 
     // MARK: - Core
@@ -28,7 +30,7 @@ final class AppState: ObservableObject {
 
     init() {
         loadSavedPeers()
-        // If identity exists, set up immediately
+        loadBlockedPeers()
         if keychain.hasIdentity() {
             setupChatManager(username: nil)
         }
@@ -60,10 +62,9 @@ final class AppState: ObservableObject {
             manager.delegate = self
             manager.start()
 
-            self.chatManager   = manager
+            self.chatManager    = manager
             self.isSetupComplete = true
 
-            // Load existing conversations
             loadExistingMessages(from: store)
         } catch {
             self.errorMessage = error.localizedDescription
@@ -74,7 +75,41 @@ final class AppState: ObservableObject {
 
     func sendMessage(_ text: String, toPeerID peerID: String, expiresAt: Date? = nil) {
         chatManager?.sendMessage(text, toPeerID: peerID, expiresAt: expiresAt)
-        // Optimistic UI update handled via delegate callbacks
+    }
+
+    // MARK: - Conversation management
+
+    func deleteConversation(peerID: String) {
+        try? chatManager?.messageStore.deleteConversation(peerID: peerID)
+        messages.removeValue(forKey: peerID)
+        unreadCounts.removeValue(forKey: peerID)
+    }
+
+    // MARK: - Blocking
+
+    func blockPeer(peerID: String) {
+        blockedPeers.insert(peerID)
+        saveBlockedPeers()
+        // Remove from active peers list — they'll reappear if unblocked and online
+        peers.removeAll { $0.id == peerID }
+        messages.removeValue(forKey: peerID)
+        unreadCounts.removeValue(forKey: peerID)
+        savePeers()
+    }
+
+    func unblockPeer(peerID: String) {
+        blockedPeers.remove(peerID)
+        saveBlockedPeers()
+    }
+
+    func isBlocked(_ peerID: String) -> Bool {
+        blockedPeers.contains(peerID)
+    }
+
+    // MARK: - Unread counts
+
+    func markAsRead(peerID: String) {
+        unreadCounts[peerID] = 0
     }
 
     // MARK: - Private helpers
@@ -82,10 +117,19 @@ final class AppState: ObservableObject {
     private func loadExistingMessages(from store: MessageStore) {
         let peerIDs = store.allConversationPeerIDs()
         for peerID in peerIDs {
+            guard !blockedPeers.contains(peerID) else { continue }
             if let msgs = try? store.messages(forPeer: peerID) {
                 messages[peerID] = msgs
             }
         }
+    }
+
+    private func appendMessage(_ message: StoredMessage) {
+        var existing = messages[message.peerID] ?? []
+        guard !existing.contains(where: { $0.id == message.id }) else { return }
+        existing.append(message)
+        existing.sort { $0.timestamp < $1.timestamp }
+        messages[message.peerID] = existing
     }
 
     // MARK: - Peer persistence
@@ -95,7 +139,6 @@ final class AppState: ObservableObject {
     private func loadSavedPeers() {
         guard let data = UserDefaults.standard.data(forKey: peersDefaultsKey),
               let saved = try? JSONDecoder().decode([KnownPeer].self, from: data) else { return }
-        // Restore peers as offline — their online status is determined by live mesh connections
         peers = saved.map { peer in
             var p = peer
             p.isOnline = false
@@ -110,14 +153,17 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func appendMessage(_ message: StoredMessage) {
-        var existing = messages[message.peerID] ?? []
-        // Deduplicate
-        if !existing.contains(where: { $0.id == message.id }) {
-            existing.append(message)
-            existing.sort { $0.timestamp < $1.timestamp }
-            messages[message.peerID] = existing
-        }
+    // MARK: - Blocked peers persistence
+
+    private let blockedDefaultsKey = "com.sophax.blockedPeers"
+
+    private func loadBlockedPeers() {
+        let saved = UserDefaults.standard.stringArray(forKey: blockedDefaultsKey) ?? []
+        blockedPeers = Set(saved)
+    }
+
+    private func saveBlockedPeers() {
+        UserDefaults.standard.set(Array(blockedPeers), forKey: blockedDefaultsKey)
     }
 }
 
@@ -126,8 +172,8 @@ final class AppState: ObservableObject {
 extension AppState: ChatManagerDelegate {
 
     func chatManager(_ manager: ChatManager, didDiscoverPeer peer: KnownPeer) {
+        guard !blockedPeers.contains(peer.id) else { return }
         if let idx = peers.firstIndex(where: { $0.id == peer.id }) {
-            // Peer reconnected — update online state without duplicating
             peers[idx].isOnline = true
         } else {
             peers.append(peer)
@@ -138,7 +184,6 @@ extension AppState: ChatManagerDelegate {
 
     func chatManager(_ manager: ChatManager, peerDidDisconnect peerID: String) {
         onlinePeers.remove(peerID)
-        // Update the peers list
         if let idx = peers.firstIndex(where: { $0.id == peerID }) {
             peers[idx].isOnline = false
         }
@@ -149,7 +194,9 @@ extension AppState: ChatManagerDelegate {
     }
 
     func chatManager(_ manager: ChatManager, didReceiveMessage message: StoredMessage, fromPeer peerID: String) {
+        guard !blockedPeers.contains(peerID) else { return }
         appendMessage(message)
+        unreadCounts[peerID, default: 0] += 1
     }
 
     func chatManager(_ manager: ChatManager, messageDelivered messageID: String, toPeer peerID: String) {
@@ -159,10 +206,8 @@ extension AppState: ChatManagerDelegate {
     }
 
     func chatManager(_ manager: ChatManager, didEncounterError error: Error) {
-        // Only surface user-facing errors (not internal crypto errors)
         if case SophaxError.decryptionFailed = error { return }
         errorMessage = error.localizedDescription
-        // Auto-dismiss after 4 seconds
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(4))
             if errorMessage == error.localizedDescription {
