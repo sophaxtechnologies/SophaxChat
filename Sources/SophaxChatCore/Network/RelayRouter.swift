@@ -21,8 +21,18 @@ public final class RelayRouter: @unchecked Sendable {
     private var seenQueue: [String]       = []   // FIFO for LRU eviction
     private let lock = NSLock()
 
-    public init(maxSeen: Int = 500) {
+    // MARK: - Rate limiting (per relay sender)
+
+    /// Sliding window: max `maxRelaysPerWindow` relay forwards from one peer per `windowSeconds`.
+    private let maxRelaysPerWindow: Int
+    private let windowSeconds: TimeInterval
+    private struct SenderWindow { var count: Int; var windowStart: Date }
+    private var senderWindows: [String: SenderWindow] = [:]
+
+    public init(maxSeen: Int = 500, maxRelaysPerWindow: Int = 20, windowSeconds: TimeInterval = 10) {
         self.maxSeen = maxSeen
+        self.maxRelaysPerWindow = maxRelaysPerWindow
+        self.windowSeconds = windowSeconds
     }
 
     // MARK: - Public API
@@ -49,6 +59,32 @@ public final class RelayRouter: @unchecked Sendable {
             seenSet.remove(evicted)
         }
         return true
+    }
+
+    /// Returns `true` if `senderID` has exceeded the relay rate limit.
+    /// Must be called under `lock`.
+    public func isRateLimited(senderID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let now = Date()
+        if var window = senderWindows[senderID] {
+            if now.timeIntervalSince(window.windowStart) >= windowSeconds {
+                // Window expired — reset
+                window = SenderWindow(count: 1, windowStart: now)
+                senderWindows[senderID] = window
+                return false
+            }
+            if window.count >= maxRelaysPerWindow {
+                return true   // Rate limited
+            }
+            window.count += 1
+            senderWindows[senderID] = window
+            return false
+        } else {
+            senderWindows[senderID] = SenderWindow(count: 1, windowStart: now)
+            return false
+        }
     }
 
     /// Remove all seen entries. Useful for testing.

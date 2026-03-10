@@ -378,6 +378,15 @@ public final class ChatManager: @unchecked Sendable {
         }
 
         let peerID = senderBundle.peerID
+
+        // Deduplication: if an active session already exists with this peerID,
+        // drop the duplicate initiateSession. This prevents replayed X3DH messages
+        // from overwriting an established session.
+        // A legitimate re-initiation always comes from a new peerID (new identity keys).
+        if sessions[peerID] != nil || (try? keychain.loadSessionState(peerID: peerID)) != nil {
+            return
+        }
+
         peerBundles[peerID] = senderBundle
 
         // Retrieve and consume the one-time prekey if Alice used one,
@@ -501,6 +510,7 @@ public final class ChatManager: @unchecked Sendable {
 
         } else {
             // ── Not for me — check dedup cache and forward if still alive ─────
+            guard !relayRouter.isRateLimited(senderID: relayPeerID) else { return }
             guard relayRouter.shouldProcess(envelope) else { return }
 
             let forwarded = envelope.forwarded()
