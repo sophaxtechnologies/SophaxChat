@@ -91,6 +91,8 @@ public enum WireMessageType: String, Codable, Sendable {
     case readReceipt
     /// Emoji reaction on a specific message.
     case reaction
+    /// Group chat message encrypted with the shared group symmetric key.
+    case groupMessage
 }
 
 // MARK: - Hello (Handshake)
@@ -145,11 +147,15 @@ public struct MessageContent: Codable, Sendable {
     public let attachmentMimeType: String?
     /// Audio duration in seconds (nil for non-audio).
     public let audioDuration:      Double?
+    /// JSON-encoded GroupInvitePayload — only set when type == .groupInvite.
+    public let groupInviteData:    Data?
 
     public enum MessageType: String, Codable, Sendable {
         case text
         case image
         case audio
+        /// Group invite — body is the group name; groupInviteData carries GroupInvitePayload JSON.
+        case groupInvite
     }
 
     public init(
@@ -159,7 +165,8 @@ public struct MessageContent: Codable, Sendable {
         expiresAt:          Date?       = nil,
         attachmentData:     Data?       = nil,
         attachmentMimeType: String?     = nil,
-        audioDuration:      Double?     = nil
+        audioDuration:      Double?     = nil,
+        groupInviteData:    Data?       = nil
     ) {
         self.body               = body
         self.type               = type
@@ -169,6 +176,7 @@ public struct MessageContent: Codable, Sendable {
         self.attachmentData     = attachmentData
         self.attachmentMimeType = attachmentMimeType
         self.audioDuration      = audioDuration
+        self.groupInviteData    = groupInviteData
     }
 }
 
@@ -237,6 +245,36 @@ public struct ReadReceiptMessage: Codable, Sendable {
 
     public init(messageIDs: [String]) {
         self.messageIDs = messageIDs
+    }
+}
+
+// MARK: - Group Message
+
+/// Wire message for a group chat message, encrypted with the group symmetric key.
+/// Sent individually to each group member (via direct/relay/queue routing).
+public struct GroupWireMessage: Codable, Sendable {
+    public let groupID:        String
+    public let messageID:      String
+    public let senderPeerID:   String
+    public let senderUsername: String
+    public let timestamp:      Date
+    /// ChaChaPoly.combined = nonce(12 B) + body ciphertext + tag(16 B)
+    public let ciphertext:     Data
+
+    public init(
+        groupID:        String,
+        messageID:      String,
+        senderPeerID:   String,
+        senderUsername: String,
+        timestamp:      Date,
+        ciphertext:     Data
+    ) {
+        self.groupID        = groupID
+        self.messageID      = messageID
+        self.senderPeerID   = senderPeerID
+        self.senderUsername = senderUsername
+        self.timestamp      = timestamp
+        self.ciphertext     = ciphertext
     }
 }
 
@@ -346,6 +384,8 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
     /// Emoji reactions on this message, keyed by peerID. nil = no reactions.
     /// Declared optional for backward-compatibility (old stored messages lack this key).
     public var reactions:          [String: String]?
+    /// For group messages: the actual sender's peerID. nil for direct messages.
+    public let senderID:           String?
 
     public enum Direction: String, Codable, Sendable {
         case sent, received
@@ -368,7 +408,8 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
         attachmentID:       String?         = nil,
         attachmentMimeType: String?         = nil,
         audioDuration:      Double?         = nil,
-        reactions:          [String: String]? = nil
+        reactions:          [String: String]? = nil,
+        senderID:           String?         = nil
     ) {
         self.id                 = id
         self.peerID             = peerID
@@ -383,6 +424,7 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
         self.attachmentMimeType = attachmentMimeType
         self.audioDuration      = audioDuration
         self.reactions          = reactions
+        self.senderID           = senderID
     }
 }
 

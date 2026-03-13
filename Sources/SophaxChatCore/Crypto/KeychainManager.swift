@@ -134,6 +134,27 @@ public final class KeychainManager {
         return username
     }
 
+    // MARK: - Group Keys
+
+    public func saveGroupKey(_ key: SymmetricKey, groupID: String) throws {
+        let data = key.withUnsafeBytes { Data($0) }
+        try save(data: data, account: "group.key.\(groupID)")
+    }
+
+    public func loadGroupKey(groupID: String) throws -> SymmetricKey {
+        let data = try load(account: "group.key.\(groupID)")
+        return SymmetricKey(data: data)
+    }
+
+    public func deleteGroupKey(groupID: String) {
+        let query: [CFString: Any] = [
+            kSecClass:        kSecClassGenericPassword,
+            kSecAttrService:  service,
+            kSecAttrAccount:  "group.key.\(groupID)"
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
     // MARK: - Existence Check
 
     public func hasIdentity() -> Bool {

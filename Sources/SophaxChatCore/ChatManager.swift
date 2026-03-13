@@ -84,6 +84,10 @@ public protocol ChatManagerDelegate: AnyObject {
     func chatManager(_ manager: ChatManager, messagesRead messageIDs: [String], byPeer peerID: String)
     /// A peer updated their emoji reaction on a specific message.
     func chatManager(_ manager: ChatManager, didUpdateReactions reactions: [String: String], onMessageID messageID: String, peerID: String)
+    /// The local user was added to a new group (created locally or invited by another peer).
+    func chatManager(_ manager: ChatManager, didJoinGroup group: GroupInfo)
+    /// A group chat message was decrypted and stored.
+    func chatManager(_ manager: ChatManager, didReceiveGroupMessage message: StoredMessage, inGroup groupID: String)
 }
 
 // MARK: - ChatManager
@@ -250,6 +254,97 @@ public final class ChatManager: @unchecked Sendable {
         let payload = ReactionMessage(targetMessageID: messageID, emoji: emoji)
         guard let wire = try? wireBuilder.build(.reaction, payload: payload) else { return }
         try? sendOrQueue(wire, toPeerID: peerID, messageID: UUID().uuidString)
+    }
+
+    // MARK: - Group messaging
+
+    /// Create a new group, distribute the key to all members, and notify the delegate.
+    @discardableResult
+    public func createGroup(name: String, memberPeerIDs: [String]) -> GroupInfo? {
+        guard !name.isEmpty, !memberPeerIDs.isEmpty else { return nil }
+        let myID     = identity.publicIdentity.peerID
+        let groupKey = SymmetricKey(size: .bits256)
+        let groupID  = UUID().uuidString
+        var seen = Set<String>()
+        let allMembers = ([myID] + memberPeerIDs).filter { seen.insert($0).inserted }
+        let group = GroupInfo(id: groupID, name: name, memberIDs: allMembers, creatorID: myID)
+
+        do {
+            try keychain.saveGroupKey(groupKey, groupID: groupID)
+        } catch {
+            delegate?.chatManager(self, didEncounterError: error)
+            return nil
+        }
+
+        let keyData = groupKey.withUnsafeBytes { Data($0) }
+        let invite  = GroupInvitePayload(
+            groupID:      groupID,
+            groupName:    name,
+            memberIDs:    allMembers,
+            creatorID:    myID,
+            groupKeyData: keyData
+        )
+        guard let inviteData = try? JSONEncoder().encode(invite) else { return nil }
+
+        // Send the invite to each member via the existing DR-encrypted channel
+        for peerID in memberPeerIDs {
+            let content = MessageContent(body: name, type: .groupInvite,
+                                         groupInviteData: inviteData)
+            if let wire = try? buildOutboundWire(content: content,
+                                                  messageID: UUID().uuidString,
+                                                  toPeerID: peerID) {
+                try? sendOrQueue(wire, toPeerID: peerID, messageID: UUID().uuidString)
+            }
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didJoinGroup: group)
+        }
+        return group
+    }
+
+    /// Send a text message to all members of a group.
+    public func sendGroupMessage(_ body: String, groupID: String, members: [String]) {
+        guard !body.isEmpty else { return }
+        guard let groupKey = try? keychain.loadGroupKey(groupID: groupID) else { return }
+
+        let myID       = identity.publicIdentity.peerID
+        let myUsername = identity.publicIdentity.username
+        let messageID  = UUID().uuidString
+        let timestamp  = Date()
+
+        // Encrypt the body with the group key
+        guard let bodyData = body.data(using: .utf8),
+              let sealed   = try? ChaChaPoly.seal(bodyData, using: groupKey) else { return }
+
+        let wireMsg = GroupWireMessage(
+            groupID:        groupID,
+            messageID:      messageID,
+            senderPeerID:   myID,
+            senderUsername: myUsername,
+            timestamp:      timestamp,
+            ciphertext:     sealed.combined
+        )
+
+        // Store locally as sent
+        let stored = StoredMessage(
+            id: messageID, peerID: "group.\(groupID)",
+            direction: .sent, body: body, status: .sending,
+            senderID: myID
+        )
+        try? messageStore.append(message: stored)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didReceiveGroupMessage: stored, inGroup: groupID)
+        }
+
+        // Broadcast to each member (excluding self)
+        for peerID in members where peerID != myID {
+            if let wire = try? wireBuilder.build(.groupMessage, payload: wireMsg) {
+                try? sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
+            }
+        }
     }
 
     /// Send a binary attachment (image or audio) to `peerID`.
@@ -559,11 +654,21 @@ public final class ChatManager: @unchecked Sendable {
             attachmentID = id
         }
 
+        // Group invite in the initial message — unlikely but handle gracefully
+        if content.type == .groupInvite {
+            if let inviteData = content.groupInviteData {
+                handleGroupInviteReceived(inviteData, fromPeer: peerID)
+            }
+            try storeNewSession(ratchet, peerID: peerID)
+            return
+        }
+
         let displayBody: String
         switch content.type {
-        case .text:  displayBody = content.body
-        case .image: displayBody = content.body.isEmpty ? "📷 Photo" : content.body
-        case .audio: displayBody = content.body.isEmpty ? "🎤 Voice message" : content.body
+        case .text:        displayBody = content.body
+        case .image:       displayBody = content.body.isEmpty ? "📷 Photo" : content.body
+        case .audio:       displayBody = content.body.isEmpty ? "🎤 Voice message" : content.body
+        case .groupInvite: displayBody = content.body
         }
 
         try storeNewSession(ratchet, peerID: peerID)
@@ -617,11 +722,25 @@ public final class ChatManager: @unchecked Sendable {
             attachmentID = id
         }
 
+        // Group invite — don't store as a chat message; process separately
+        if content.type == .groupInvite {
+            if let inviteData = content.groupInviteData {
+                handleGroupInviteReceived(inviteData, fromPeer: peerID)
+            }
+            // Still ack delivery
+            let ack  = AckMessage(messageID: payload.messageID, status: .delivered)
+            if let wire = try? wireBuilder.build(.ack, payload: ack) {
+                try? sendOrQueue(wire, toPeerID: peerID, messageID: payload.messageID)
+            }
+            return
+        }
+
         let displayBody: String
         switch content.type {
         case .text:  displayBody = content.body
         case .image: displayBody = content.body.isEmpty ? "📷 Photo" : content.body
         case .audio: displayBody = content.body.isEmpty ? "🎤 Voice message" : content.body
+        case .groupInvite: return   // already handled above; belt-and-suspenders guard
         }
 
         let stored = StoredMessage(
@@ -630,6 +749,7 @@ public final class ChatManager: @unchecked Sendable {
             direction:          .received,
             body:               displayBody,
             status:             .delivered,
+            replyToID:          content.replyToID,
             expiresAt:          clampedExpiry(content.expiresAt),
             hopCount:           hopCount,
             attachmentID:       attachmentID,
@@ -691,6 +811,47 @@ public final class ChatManager: @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.chatManager(self, didUpdateReactions: finalReactions, onMessageID: messageID, peerID: convID)
+        }
+    }
+
+    private func handleGroupInviteReceived(_ inviteData: Data, fromPeer peerID: String) {
+        guard let invite = try? JSONDecoder().decode(GroupInvitePayload.self, from: inviteData) else { return }
+        // Store the group key in Keychain
+        let groupKey = SymmetricKey(data: invite.groupKeyData)
+        try? keychain.saveGroupKey(groupKey, groupID: invite.groupID)
+        let group = GroupInfo(
+            id:        invite.groupID,
+            name:      invite.groupName,
+            memberIDs: invite.memberIDs,
+            creatorID: invite.creatorID
+        )
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didJoinGroup: group)
+        }
+    }
+
+    private func handleGroupMessage(_ payload: GroupWireMessage) {
+        guard let groupKey  = try? keychain.loadGroupKey(groupID: payload.groupID) else { return }
+        guard let sealedBox = try? ChaChaPoly.SealedBox(combined: payload.ciphertext),
+              let bodyData  = try? ChaChaPoly.open(sealedBox, using: groupKey),
+              let body      = String(data: bodyData, encoding: .utf8) else { return }
+
+        let convID = "group.\(payload.groupID)"
+        let stored = StoredMessage(
+            id:        payload.messageID,
+            peerID:    convID,
+            direction: .received,
+            body:      body,
+            timestamp: payload.timestamp,
+            status:    .delivered,
+            senderID:  payload.senderPeerID
+        )
+        try? messageStore.append(message: stored)
+        let groupID = payload.groupID
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didReceiveGroupMessage: stored, inGroup: groupID)
         }
     }
 
@@ -762,6 +923,10 @@ public final class ChatManager: @unchecked Sendable {
         case .reaction:
             let payload = try wireBuilder.decodePayload(ReactionMessage.self, from: message)
             handleReaction(payload, fromPeer: message.senderID)
+
+        case .groupMessage:
+            let payload = try wireBuilder.decodePayload(GroupWireMessage.self, from: message)
+            handleGroupMessage(payload)
 
         case .sealed:
             let sealed = try wireBuilder.decodePayload(SealedMessage.self, from: message)
@@ -904,6 +1069,10 @@ extension ChatManager: MeshManagerDelegate {
             case .reaction:
                 let payload = try wireBuilder.decodePayload(ReactionMessage.self, from: message)
                 handleReaction(payload, fromPeer: message.senderID)
+
+            case .groupMessage:
+                let payload = try wireBuilder.decodePayload(GroupWireMessage.self, from: message)
+                handleGroupMessage(payload)
 
             case .relay:
                 let envelope = try wireBuilder.decodePayload(RelayEnvelope.self, from: message)

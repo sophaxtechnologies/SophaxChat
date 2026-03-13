@@ -27,6 +27,7 @@ final class AppState: ObservableObject {
     @Published var typingPeers:  Set<String> = []
     @Published var peerAliases:  [String: String] = [:]
     @Published var errorMessage: String? = nil
+    @Published var groups:       [GroupInfo] = []
 
     /// Username cache for blocked peers (persisted so they're still readable after restart).
     private(set) var blockedPeerNames: [String: String] = [:]
@@ -43,6 +44,7 @@ final class AppState: ObservableObject {
         loadSavedPeers()
         loadBlockedPeers()
         loadAliases()
+        loadGroups()
         if keychain.hasIdentity() {
             setupChatManager(username: nil)
         }
@@ -98,6 +100,51 @@ final class AppState: ObservableObject {
 
     func sendReaction(emoji: String?, messageID: String, peerID: String) {
         chatManager?.sendReaction(emoji: emoji, toMessageID: messageID, toPeerID: peerID)
+    }
+
+    // MARK: - Group messaging
+
+    func createGroup(name: String, memberPeerIDs: [String]) {
+        chatManager?.createGroup(name: name, memberPeerIDs: memberPeerIDs)
+    }
+
+    func sendGroupMessage(_ text: String, group: GroupInfo) {
+        chatManager?.sendGroupMessage(text, groupID: group.id, members: group.memberIDs)
+    }
+
+    func groupMessages(for group: GroupInfo) -> [StoredMessage] {
+        messages[group.conversationID] ?? []
+    }
+
+    func markGroupAsRead(group: GroupInfo) {
+        unreadCounts[group.conversationID] = 0
+    }
+
+    func displayName(forPeerID peerID: String) -> String {
+        if let peer = peers.first(where: { $0.id == peerID }) {
+            return displayName(for: peer)
+        }
+        return String(peerID.prefix(8)) + "…"
+    }
+
+    private let groupsDefaultsKey = "com.sophax.groups"
+
+    private func loadGroups() {
+        guard let data  = UserDefaults.standard.data(forKey: groupsDefaultsKey),
+              let saved = try? JSONDecoder().decode([GroupInfo].self, from: data) else { return }
+        groups = saved
+        // Pre-populate messages dict from store
+        for group in groups {
+            if let msgs = try? chatManager?.messageStore.messages(forPeer: group.conversationID) {
+                messages[group.conversationID] = msgs
+            }
+        }
+    }
+
+    private func saveGroups() {
+        if let data = try? JSONEncoder().encode(groups) {
+            UserDefaults.standard.set(data, forKey: groupsDefaultsKey)
+        }
     }
 
     /// Compress `image` to JPEG under 400 KB and send as an encrypted attachment.
@@ -264,6 +311,12 @@ final class AppState: ObservableObject {
                 messages[peerID] = msgs
             }
         }
+        // Also load group conversations
+        for group in groups {
+            if let msgs = try? store.messages(forPeer: group.conversationID) {
+                messages[group.conversationID] = msgs
+            }
+        }
     }
 
     private func appendMessage(_ message: StoredMessage) {
@@ -405,6 +458,22 @@ extension AppState: ChatManagerDelegate {
         } else {
             typingPeers.remove(peerID)
             typingTimeouts.removeValue(forKey: peerID)
+        }
+    }
+
+    func chatManager(_ manager: ChatManager, didJoinGroup group: GroupInfo) {
+        if !groups.contains(where: { $0.id == group.id }) {
+            groups.append(group)
+            saveGroups()
+        }
+    }
+
+    func chatManager(_ manager: ChatManager, didReceiveGroupMessage message: StoredMessage, inGroup groupID: String) {
+        appendMessage(message)
+        let convID = "group.\(groupID)"
+        unreadCounts[convID, default: 0] += message.direction == .received ? 1 : 0
+        if message.direction == .received {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         }
     }
 

@@ -8,8 +8,9 @@ import SophaxChatCore
 
 struct ChatListView: View {
     @EnvironmentObject var appState: AppState
-    @State private var showingIdentity  = false
-    @State private var showingSettings  = false
+    @State private var showingIdentity    = false
+    @State private var showingSettings    = false
+    @State private var showingCreateGroup = false
     @State private var peerToBlock: KnownPeer? = nil
 
     var body: some View {
@@ -41,6 +42,17 @@ struct ChatListView: View {
                                     Label("Block", systemImage: "nosign")
                                 }
                                 .tint(.orange)
+                            }
+                        }
+                    }
+                }
+
+                // Group conversations
+                if !appState.groups.isEmpty {
+                    Section("Groups") {
+                        ForEach(appState.groups) { group in
+                            NavigationLink(destination: GroupChatView(group: group)) {
+                                GroupConversationRow(group: group)
                             }
                         }
                     }
@@ -96,6 +108,11 @@ struct ChatListView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 4) {
                         Button {
+                            showingCreateGroup = true
+                        } label: {
+                            Image(systemName: "person.2.badge.plus")
+                        }
+                        Button {
                             showingSettings = true
                         } label: {
                             Image(systemName: "gearshape")
@@ -115,6 +132,9 @@ struct ChatListView: View {
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showingCreateGroup) {
+            CreateGroupView()
         }
         .alert("Error", isPresented: Binding(
             get: { appState.errorMessage != nil },
@@ -139,6 +159,70 @@ struct ChatListView: View {
         } message: {
             Text("You won't receive messages from this person. This can be undone in Settings.")
         }
+    }
+}
+
+// MARK: - Group Conversation Row
+
+struct GroupConversationRow: View {
+    @EnvironmentObject var appState: AppState
+    let group: GroupInfo
+
+    private var lastMessage: StoredMessage? {
+        appState.messages[group.conversationID]?.last
+    }
+    private var unreadCount: Int {
+        appState.unreadCounts[group.conversationID] ?? 0
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Group avatar
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.15))
+                    .frame(width: 48, height: 48)
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.accentColor)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(group.name)
+                        .font(.subheadline.weight(unreadCount > 0 ? .bold : .semibold))
+                    Spacer()
+                    if let last = lastMessage {
+                        Text(last.timestamp, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                HStack {
+                    Text("\(group.memberIDs.count) members")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    if let last = lastMessage {
+                        Text("· \(last.body)")
+                            .font(.subheadline)
+                            .foregroundStyle(unreadCount > 0 ? .primary : .secondary)
+                            .fontWeight(unreadCount > 0 ? .medium : .regular)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    if unreadCount > 0 {
+                        Text("\(unreadCount)")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
