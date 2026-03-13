@@ -29,6 +29,16 @@ final class AppState: ObservableObject {
     @Published var errorMessage: String? = nil
     @Published var groups:       [GroupInfo] = []
 
+    /// Safety Number pinning: peerID → safety number at time of verification.
+    /// Nil entry = never verified. Different value = key changed warning.
+    @Published var verifiedPeers: [String: String] = [:]
+
+    /// peerID → true when their session was established without a one-time prekey (reduced entropy).
+    @Published var noOPKSessions: Set<String> = []
+
+    /// Set to a peer that just came back online; triggers reconnect banner in UI.
+    @Published var reconnectedPeer: KnownPeer? = nil
+
     /// Username cache for blocked peers (persisted so they're still readable after restart).
     private(set) var blockedPeerNames: [String: String] = [:]
     private var typingTimeouts: [String: Task<Void, Never>] = [:]
@@ -45,6 +55,7 @@ final class AppState: ObservableObject {
         loadBlockedPeers()
         loadAliases()
         loadGroups()
+        loadVerifiedPeers()
         if keychain.hasIdentity() {
             setupChatManager(username: nil)
         }
@@ -108,12 +119,17 @@ final class AppState: ObservableObject {
         chatManager?.createGroup(name: name, memberPeerIDs: memberPeerIDs)
     }
 
-    func sendGroupMessage(_ text: String, group: GroupInfo, expiresAt: Date? = nil) {
+    func sendGroupMessage(_ text: String, group: GroupInfo, expiresAt: Date? = nil, replyToID: String? = nil) {
         chatManager?.sendGroupMessage(text, groupID: group.id, members: group.memberIDs,
-                                      expiresAt: expiresAt)
+                                      expiresAt: expiresAt, replyToID: replyToID)
     }
 
-    func sendGroupImage(_ image: UIImage, group: GroupInfo, expiresAt: Date? = nil) {
+    func sendGroupReaction(emoji: String?, messageID: String, group: GroupInfo) {
+        chatManager?.sendGroupReaction(emoji: emoji, toMessageID: messageID,
+                                       groupID: group.id, members: group.memberIDs)
+    }
+
+    func sendGroupImage(_ image: UIImage, group: GroupInfo, expiresAt: Date? = nil, replyToID: String? = nil) {
         var quality: CGFloat = 0.75
         var jpegData: Data? = image.jpegData(compressionQuality: quality)
         while let d = jpegData, d.count > 400_000, quality > 0.1 {
@@ -123,14 +139,24 @@ final class AppState: ObservableObject {
         guard let data = jpegData else { return }
         chatManager?.sendGroupAttachment(data, mimeType: "image/jpeg",
                                          groupID: group.id, members: group.memberIDs,
-                                         expiresAt: expiresAt)
+                                         expiresAt: expiresAt, replyToID: replyToID)
     }
 
-    func sendGroupAudio(_ data: Data, duration: Double, group: GroupInfo, expiresAt: Date? = nil) {
+    func sendGroupAudio(_ data: Data, duration: Double, group: GroupInfo, expiresAt: Date? = nil, replyToID: String? = nil) {
         chatManager?.sendGroupAttachment(data, mimeType: "audio/m4a",
                                          audioDuration: duration,
                                          groupID: group.id, members: group.memberIDs,
-                                         expiresAt: expiresAt)
+                                         expiresAt: expiresAt, replyToID: replyToID)
+    }
+
+    // MARK: - Username change
+
+    func changeUsername(_ newUsername: String) {
+        let trimmed = newUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 64 else { return }
+        guard let identity = chatManager?.identity else { return }
+        try? identity.setUsername(trimmed)
+        chatManager?.broadcastHello()
     }
 
     func leaveGroup(_ group: GroupInfo) {
@@ -314,6 +340,25 @@ final class AppState: ObservableObject {
         saveAliases()
     }
 
+    // MARK: - Safety Number pinning
+
+    /// Mark a peer's safety number as verified (called after successful QR or manual comparison).
+    func markPeerVerified(_ peerID: String, safetyNumber: String) {
+        verifiedPeers[peerID] = safetyNumber
+        saveVerifiedPeers()
+    }
+
+    /// Returns true if this peer has been verified and their safety number hasn't changed.
+    func isVerified(_ peerID: String, currentSafetyNumber: String) -> Bool {
+        verifiedPeers[peerID] == currentSafetyNumber
+    }
+
+    /// Returns true if a peer was previously verified but their safety number has since changed.
+    func hasKeyChanged(for peerID: String, currentSafetyNumber: String) -> Bool {
+        guard let pinned = verifiedPeers[peerID] else { return false }
+        return pinned != currentSafetyNumber
+    }
+
     // MARK: - App lock
 
     var appLockEnabled: Bool {
@@ -363,7 +408,11 @@ final class AppState: ObservableObject {
         var existing = messages[message.peerID] ?? []
         guard !existing.contains(where: { $0.id == message.id }) else { return }
         existing.append(message)
-        existing.sort { $0.timestamp < $1.timestamp }
+        // Sort by receivedAt (local wall-clock) when available; fall back to sender timestamp.
+        // This prevents a clock-skewed or malicious sender from reordering our conversation view.
+        existing.sort {
+            ($0.receivedAt ?? $0.timestamp) < ($1.receivedAt ?? $1.timestamp)
+        }
         messages[message.peerID] = existing
     }
 
@@ -422,6 +471,22 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(Array(blockedPeers), forKey: blockedDefaultsKey)
         if let data = try? JSONEncoder().encode(blockedPeerNames) {
             UserDefaults.standard.set(data, forKey: blockedNamesKey)
+        }
+    }
+
+    // MARK: - Verified peers persistence
+
+    private let verifiedPeersKey = "com.sophax.verifiedPeers"
+
+    private func loadVerifiedPeers() {
+        guard let data  = UserDefaults.standard.data(forKey: verifiedPeersKey),
+              let saved = try? JSONDecoder().decode([String: String].self, from: data) else { return }
+        verifiedPeers = saved
+    }
+
+    private func saveVerifiedPeers() {
+        if let data = try? JSONEncoder().encode(verifiedPeers) {
+            UserDefaults.standard.set(data, forKey: verifiedPeersKey)
         }
     }
 }
@@ -498,6 +563,31 @@ extension AppState: ChatManagerDelegate {
         } else {
             typingPeers.remove(peerID)
             typingTimeouts.removeValue(forKey: peerID)
+        }
+    }
+
+    func chatManager(_ manager: ChatManager, sessionEstablishedWithPeer peerID: String, usedOPK: Bool) {
+        if !usedOPK {
+            noOPKSessions.insert(peerID)
+        }
+    }
+
+    func chatManager(_ manager: ChatManager, peerDidReconnect peer: KnownPeer) {
+        reconnectedPeer = peer
+        // Auto-clear after 4 seconds
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            if self?.reconnectedPeer?.id == peer.id {
+                self?.reconnectedPeer = nil
+            }
+        }
+    }
+
+    func chatManager(_ manager: ChatManager, didUpdateGroupReactions reactions: [String: String],
+                     onMessageID messageID: String, groupID: String) {
+        let convID = "group.\(groupID)"
+        if let idx = messages[convID]?.firstIndex(where: { $0.id == messageID }) {
+            messages[convID]?[idx].reactions = reactions.isEmpty ? nil : reactions
         }
     }
 

@@ -11,6 +11,9 @@ struct IdentityView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
+    @State private var showingRenameAlert = false
+    @State private var renameText         = ""
+
     private var identity: IdentityManager? { appState.chatManager?.identity }
 
     var body: some View {
@@ -36,6 +39,13 @@ struct IdentityView: View {
                                 Text("Peer ID: \(id.peerID.prefix(16))…")
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundStyle(.secondary)
+                                Button("Change Username") {
+                                    renameText = id.username
+                                    showingRenameAlert = true
+                                }
+                                .font(.caption)
+                                .buttonStyle(.bordered)
+                                .tint(.accentColor)
                             }
                         }
                         .frame(maxWidth: .infinity)
@@ -113,6 +123,17 @@ struct IdentityView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .alert("Change Username", isPresented: $showingRenameAlert) {
+                TextField("New username", text: $renameText)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                Button("Save") {
+                    appState.changeUsername(renameText)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your new username will be shared with nearby peers.")
             }
         }
     }

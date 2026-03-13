@@ -27,6 +27,9 @@ struct GroupChatView: View {
     // PTT recording
     @StateObject private var voiceRecorder = VoiceRecorder()
 
+    // Reply
+    @State private var replyingTo: StoredMessage? = nil
+
     // UI state
     @State private var showingMemberList   = false
     @State private var showingLeaveConfirm = false
@@ -35,6 +38,8 @@ struct GroupChatView: View {
         appState.messages[group.conversationID] ?? []
     }
 
+    private var memberCount: Int { group.memberIDs.count }
+
     var body: some View {
         VStack(spacing: 0) {
             // Message list
@@ -42,7 +47,12 @@ struct GroupChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(messages) { message in
-                            GroupMessageBubble(message: message, group: group)
+                            GroupMessageBubble(
+                                message:    message,
+                                group:      group,
+                                replyingTo: messages.first { $0.id == message.replyToID },
+                                onReply:    { withAnimation { replyingTo = message } }
+                            )
                         }
                         Color.clear.frame(height: 1).id("bottom")
                     }
@@ -56,7 +66,6 @@ struct GroupChatView: View {
                 .onAppear {
                     proxy.scrollTo("bottom", anchor: .bottom)
                     appState.markGroupAsRead(group: group)
-                    // Restore disappearing messages setting
                     if let saved = UserDefaults.standard.string(forKey: disappearingKey),
                        let interval = DisappearingInterval(rawValue: saved) {
                         disappearingInterval = interval
@@ -81,6 +90,36 @@ struct GroupChatView: View {
 
             Divider()
 
+            // Reply preview bar
+            if let replying = replyingTo {
+                HStack(spacing: 10) {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: 3)
+                        .clipShape(Capsule())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(replying.direction == .sent
+                             ? "Reply to yourself"
+                             : "Reply to \(appState.displayName(forPeerID: replying.senderID ?? ""))")
+                            .font(.caption.bold())
+                            .foregroundStyle(.accentColor)
+                        Text(replying.body)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Button { withAnimation { replyingTo = nil } } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.bar)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             // Input bar
             HStack(spacing: 10) {
                 // Attachment button
@@ -95,7 +134,8 @@ struct GroupChatView: View {
                         if let data = try? await item.loadTransferable(type: Data.self),
                            let image = UIImage(data: data) {
                             let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
-                            appState.sendGroupImage(image, group: group, expiresAt: expiresAt)
+                            appState.sendGroupImage(image, group: group, expiresAt: expiresAt, replyToID: replyingTo?.id)
+                            replyingTo = nil
                         }
                         photoPickerItem = nil
                     }
@@ -124,7 +164,9 @@ struct GroupChatView: View {
                             voiceRecorder.stop { data, duration in
                                 guard let data, duration > 0.5 else { return }
                                 let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
-                                appState.sendGroupAudio(data, duration: duration, group: group, expiresAt: expiresAt)
+                                appState.sendGroupAudio(data, duration: duration, group: group,
+                                                        expiresAt: expiresAt, replyToID: replyingTo?.id)
+                                replyingTo = nil
                             }
                         }
                 )
@@ -221,7 +263,8 @@ struct GroupChatView: View {
         guard !text.isEmpty else { return }
         messageText = ""
         let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
-        appState.sendGroupMessage(text, group: group, expiresAt: expiresAt)
+        appState.sendGroupMessage(text, group: group, expiresAt: expiresAt, replyToID: replyingTo?.id)
+        replyingTo = nil
     }
 }
 
@@ -233,7 +276,6 @@ private struct GroupMemberListView: View {
     let group: GroupInfo
 
     private var myPeerID: String {
-        // best effort; fine if unavailable
         (appState.chatManager?.identity.publicIdentity.peerID) ?? ""
     }
 
@@ -307,8 +349,10 @@ private struct GroupMemberListView: View {
 
 private struct GroupMessageBubble: View {
     @EnvironmentObject var appState: AppState
-    let message: StoredMessage
-    let group: GroupInfo
+    let message:    StoredMessage
+    let group:      GroupInfo
+    let replyingTo: StoredMessage?   // quoted message (nil if not a reply)
+    let onReply:    () -> Void
 
     private var isSent: Bool { message.direction == .sent }
 
@@ -322,7 +366,7 @@ private struct GroupMessageBubble: View {
             if isSent { Spacer(minLength: 60) }
 
             VStack(alignment: isSent ? .trailing : .leading, spacing: 2) {
-                // Sender name (only for received messages in groups)
+                // Sender name (only for received messages)
                 if !isSent && !senderName.isEmpty {
                     Text(senderName)
                         .font(.caption2.bold())
@@ -330,20 +374,65 @@ private struct GroupMessageBubble: View {
                         .padding(.horizontal, 4)
                 }
 
-                VStack(alignment: isSent ? .trailing : .leading, spacing: 6) {
+                VStack(alignment: isSent ? .trailing : .leading, spacing: 4) {
+                    // Quoted reply preview
+                    if let quoted = replyingTo {
+                        QuotedBubble(message: quoted, isSentContext: isSent)
+                    }
+
                     groupBubbleContent
                 }
                 .contextMenu {
+                    Button {
+                        withAnimation { onReply() }
+                    } label: {
+                        Label("Reply", systemImage: "arrowshape.turn.up.left")
+                    }
                     Button {
                         UIPasteboard.general.string = message.body
                     } label: {
                         Label("Copy", systemImage: "doc.on.doc")
                     }
+                    Divider()
+                    ForEach(["👍", "❤️", "😂", "😮", "😢", "👎"], id: \.self) { emoji in
+                        Button {
+                            let myID = appState.chatManager?.identity.publicIdentity.peerID ?? ""
+                            let current = message.reactions?[myID]
+                            appState.sendGroupReaction(
+                                emoji: current == emoji ? nil : emoji,
+                                messageID: message.id,
+                                group: group
+                            )
+                        } label: {
+                            let myID = appState.chatManager?.identity.publicIdentity.peerID ?? ""
+                            if message.reactions?[myID] == emoji {
+                                Label(emoji, systemImage: "checkmark")
+                            } else {
+                                Text(emoji)
+                            }
+                        }
+                    }
                 }
 
-                Text(message.timestamp, style: .time)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                // Reaction pills
+                if let reactions = message.reactions, !reactions.isEmpty {
+                    ReactionPillRow(reactions: reactions)
+                }
+
+                // Timestamp + delivery status footer
+                HStack(spacing: 4) {
+                    Text(message.timestamp, style: .time)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    if isSent {
+                        Image(systemName: "checkmark")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Text("→ \(group.memberIDs.count - 1)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
             }
 
             if !isSent { Spacer(minLength: 60) }
@@ -356,7 +445,6 @@ private struct GroupMessageBubble: View {
         if let id = message.attachmentID, mime.hasPrefix("image/"),
            let data = appState.loadAttachment(id: id),
            let uiImage = UIImage(data: data) {
-            // Image attachment
             Image(uiImage: uiImage)
                 .resizable()
                 .scaledToFill()
@@ -371,7 +459,6 @@ private struct GroupMessageBubble: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             }
         } else if mime.hasPrefix("audio/") {
-            // Audio attachment
             HStack(spacing: 6) {
                 Image(systemName: "waveform").font(.body)
                 if let dur = message.audioDuration { Text(formatDuration(dur)).font(.subheadline) }
@@ -381,7 +468,6 @@ private struct GroupMessageBubble: View {
             .background(isSent ? Color.accentColor : Color(.secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 18))
         } else {
-            // Plain text
             Text(message.body)
                 .font(.body)
                 .foregroundStyle(isSent ? .white : .primary)
@@ -394,6 +480,59 @@ private struct GroupMessageBubble: View {
     private func formatDuration(_ seconds: Double) -> String {
         let s = Int(seconds)
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+// MARK: - Quoted bubble (reply preview)
+
+private struct QuotedBubble: View {
+    let message:       StoredMessage
+    let isSentContext: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Rectangle()
+                .fill(Color.accentColor)
+                .frame(width: 2)
+                .clipShape(Capsule())
+            Text(message.body.isEmpty ? "Attachment" : message.body)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(.tertiarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+// MARK: - Reaction pill row (reused from 1:1)
+
+private struct ReactionPillRow: View {
+    let reactions: [String: String]
+
+    private var counts: [(emoji: String, count: Int)] {
+        var tally: [String: Int] = [:]
+        for emoji in reactions.values { tally[emoji, default: 0] += 1 }
+        return tally.map { ($0.key, $0.value) }.sorted { $0.count > $1.count }
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(counts, id: \.emoji) { item in
+                HStack(spacing: 2) {
+                    Text(item.emoji).font(.caption)
+                    if item.count > 1 {
+                        Text("\(item.count)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Color(.tertiarySystemGroupedBackground))
+                .clipShape(Capsule())
+            }
+        }
     }
 }
 

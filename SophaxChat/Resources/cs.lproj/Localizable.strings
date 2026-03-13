@@ -1,0 +1,77 @@
+/* SophaxChat — Czech strings */
+
+/* Chat List */
+"chat.list.title" = "SophaxChat";
+"chat.list.section.conversations" = "Konverzace";
+"chat.list.section.groups" = "Skupiny";
+"chat.list.section.nearby" = "V okolí";
+"chat.list.empty.title" = "Hledám zařízení v okolí…";
+"chat.list.empty.subtitle" = "Ujistěte se, že obě zařízení mají otevřenou aplikaci a jsou v dosahu Bluetooth nebo WiFi.";
+"chat.list.empty.hint" = "Klepni pro odeslání zprávy";
+
+/* Chat */
+"chat.input.placeholder" = "Zpráva";
+"chat.reply.yourself" = "Odpovědět sobě";
+"chat.reply.to" = "Odpovědět uživateli %@";
+"chat.disappearing.indicator" = "Zprávy zmizí za %@";
+"chat.key.changed.warning" = "Bezpečnostní klíč uživatele %@ se změnil — ověřte identitu před pokračováním.";
+"chat.key.changed.action" = "Ověřit";
+"chat.opk.warning" = "Relace byla navázána bez jednorázového klíče — mírně snížená počáteční bezpečnost.";
+"chat.context.reply" = "Odpovědět";
+"chat.context.copy" = "Kopírovat";
+"chat.context.delete" = "Smazat";
+"chat.context.forward" = "Přeposlat";
+
+/* Safety Number */
+"safetyNumber.title" = "Ověřit identitu";
+"safetyNumber.instructions" = "Porovnejte obě čísla nahlas nebo osobně. Pokud se na obou zařízeních shodují, spojení je pravé.";
+"safetyNumber.warning" = "Pokud se čísla neshodují, někdo může odposlouchávat vaše zprávy. Nepokračujte.";
+"safetyNumber.theirLabel" = "Číslo uživatele %@";
+"safetyNumber.theirSublabel" = "Oni čtou toto vám";
+"safetyNumber.myLabel" = "Vaše číslo";
+"safetyNumber.mySublabel" = "Vy čtete toto jim";
+"safetyNumber.markVerified" = "Označit jako ověřené";
+"safetyNumber.verified" = "Identita ověřena";
+
+/* Groups */
+"group.reply.to" = "Odpovědět uživateli %@";
+"group.members.section" = "%d členů";
+"group.leave.title" = "Opustit skupinu \"%@\"?";
+"group.leave.message" = "Přestanete dostávat zprávy z této skupiny. Tuto akci nelze vrátit.";
+"group.leave.action" = "Opustit skupinu";
+"group.delivery.hint" = "→ %d";
+
+/* Identity */
+"identity.title" = "Moje identita";
+"identity.changeUsername" = "Změnit uživatelské jméno";
+"identity.changeUsername.prompt" = "Vaše nové jméno bude sdíleno se zařízeními v okolí.";
+"identity.changeUsername.placeholder" = "Nové uživatelské jméno";
+
+/* Settings */
+"settings.title" = "Nastavení";
+"settings.blocked.title" = "Blokovaní uživatelé";
+"settings.blocked.empty" = "Žádní blokovaní uživatelé";
+"settings.blocked.footer" = "Blokovaní uživatelé vám nemohou posílat zprávy. Odblokování umožní budoucí zprávy, pokud budou v dosahu.";
+"settings.blocked.unblock" = "Odblokovat";
+"settings.security.title" = "Zabezpečení";
+"settings.applock.label" = "Zámek aplikace";
+"settings.applock.footer" = "Vyžadovat Face ID, Touch ID nebo kód pro otevření SophaxChat.";
+"settings.about.title" = "O aplikaci";
+
+/* Reconnect banner */
+"peer.reconnected" = "%@ je zpět online";
+
+/* Onboarding */
+"onboarding.title" = "Vítejte v SophaxChat";
+"onboarding.subtitle" = "Žádné servery. Žádné účty. Jen šifrované zprávy.";
+"onboarding.username.placeholder" = "Vaše uživatelské jméno";
+"onboarding.continue" = "Pokračovat";
+
+/* Common */
+"common.done" = "Hotovo";
+"common.cancel" = "Zrušit";
+"common.save" = "Uložit";
+"common.ok" = "OK";
+"common.delete" = "Smazat";
+"common.block" = "Blokovat";
+"common.error" = "Chyba";

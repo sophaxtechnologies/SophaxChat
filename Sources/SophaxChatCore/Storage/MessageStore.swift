@@ -140,6 +140,24 @@ public final class MessageStore: @unchecked Sendable {
         try? FileManager.default.removeItem(at: url)
     }
 
+    /// Encrypt and write arbitrary data to a named file in the same directory.
+    /// Used by ChatManager to persist the offline pending queue.
+    public func saveEncryptedBlob(_ data: Data, fileName: String) throws {
+        let url       = baseURL.appendingPathComponent("\(fileName).enc")
+        let encrypted = try encrypt(data)
+        try encrypted.write(to: url, options: .atomic)
+    }
+
+    /// Load and decrypt an arbitrary blob previously saved with saveEncryptedBlob.
+    /// Returns nil if the file does not exist.
+    public func loadEncryptedBlob(fileName: String) -> Data? {
+        let url = baseURL.appendingPathComponent("\(fileName).enc")
+        guard FileManager.default.fileExists(atPath: url.path),
+              let encrypted = try? Data(contentsOf: url),
+              let plain     = try? decrypt(encrypted) else { return nil }
+        return plain
+    }
+
     /// Wipe ALL stored messages.
     public func wipeAll() throws {
         cache.removeAll()

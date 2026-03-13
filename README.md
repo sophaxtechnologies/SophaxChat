@@ -8,6 +8,7 @@
   <p>
     <img src="https://img.shields.io/badge/Swift-6.2-FA7343?logo=swift&logoColor=white" />
     <img src="https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=white" />
+    <img src="https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white" />
     <img src="https://img.shields.io/badge/License-MIT-blue" />
     <img src="https://img.shields.io/badge/Status-Alpha-orange" />
     <img src="https://img.shields.io/badge/Cryptography-CryptoKit-34C759?logo=apple" />
@@ -16,6 +17,7 @@
   <p>
     <a href="#protocol">Protocol</a> •
     <a href="#cryptography">Cryptography</a> •
+    <a href="#features">Features</a> •
     <a href="#architecture">Architecture</a> •
     <a href="#getting-started">Getting Started</a> •
     <a href="#security">Security</a> •
@@ -32,9 +34,9 @@
 
 ## What is SophaxChat?
 
-SophaxChat is an **open-source, infrastructure-free, end-to-end encrypted** iOS messenger. It works over Bluetooth LE and WiFi Direct — no internet required, no servers, no phone number, no account.
+SophaxChat is an **open-source, infrastructure-free, end-to-end encrypted** messenger for iOS and macOS. It works over Bluetooth LE and WiFi Direct — no internet required, no servers, no phone number, no account.
 
-Every message is protected by the **Signal Protocol** (X3DH + Double Ratchet). Your identity is nothing more than a cryptographic key pair generated on your device.
+Every message is protected by the **Signal Protocol** (X3DH + Double Ratchet with Header Encryption). Your identity is nothing more than a cryptographic key pair generated on your device.
 
 ### Why does it exist?
 
@@ -44,9 +46,13 @@ Every message is protected by the **Signal Protocol** (X3DH + Double Ratchet). Y
 | No phone number required | ❌ | ✅ | ✅ |
 | Signal-grade forward secrecy | ✅ | ❌ | ✅ |
 | Per-session unique keys (X3DH) | ✅ | ❌ | ✅ |
+| Header encryption (relay metadata) | ✅ | ❌ | ✅ |
+| Sealed sender (hides sender from relay) | ✅ | ❌ | ✅ |
 | No server dependency | ❌ | ✅ | ✅ |
-| Open-source (including server) | ⚠️ | ✅ | ✅ |
+| Group messaging (Sender Keys) | ✅ | ❌ | ✅ |
+| Open-source | ⚠️ | ✅ | ✅ |
 | Multihop relay (mesh routing) | ❌ | ✅ | ✅ |
+| macOS support | ✅ | ❌ | ✅ |
 
 SophaxChat occupies a specific niche: **Signal-grade cryptography, zero infrastructure**. Ideal for journalists, activists, protesters, disaster responders, or anyone in an environment where internet access is unavailable, monitored, or untrusted.
 
@@ -54,7 +60,7 @@ SophaxChat occupies a specific niche: **Signal-grade cryptography, zero infrastr
 
 ## Protocol
 
-### Session Lifecycle
+### 1:1 Session Lifecycle
 
 ```
 ┌─ Alice ─────────────────────────────────────────────────────────── Bob ─┐
@@ -81,11 +87,10 @@ SophaxChat occupies a specific niche: **Signal-grade cryptography, zero infrastr
                                                          Bob derives SK from his keys
                                                          Bob inits Double Ratchet
 
-  [4. MESSAGES — Double Ratchet (forward secrecy + break-in recovery)]
+  [4. MESSAGES — Double Ratchet + Header Encryption]
 
-      Alice ──── Message(DR_msg_1) ────→ Bob
-      Alice ←─── Message(DR_msg_2) ──── Bob
-           ...
+      Alice ──── SealedSender(encHeader, encBody) ────→ Bob
+      Alice ←─── SealedSender(encHeader, encBody) ──── Bob
 
   [5. RELAY — If Alice and Bob not directly connected]
 
@@ -95,13 +100,48 @@ SophaxChat occupies a specific niche: **Signal-grade cryptography, zero infrastr
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Group Session Lifecycle
+
+```
+┌─ Alice (creator) ─────────────────────── Bob, Carol ─┐
+
+  [1. CREATE — Alice generates group and her sender chain]
+
+      Alice: senderChainKey_A = random(32 bytes)
+
+  [2. INVITE — Sent via per-peer Double Ratchet channel]
+
+      Alice ──── GroupInvite(groupID, senderChainKey_A) ────→ Bob
+      Alice ──── GroupInvite(groupID, senderChainKey_A) ────→ Carol
+
+  [3. JOIN — Each member generates their own sender chain]
+
+      Bob:   senderChainKey_B = random(32 bytes)
+      Carol: senderChainKey_C = random(32 bytes)
+
+      Bob   ──── SenderKeyDistribution(senderChainKey_B) ────→ Alice, Carol
+      Carol ──── SenderKeyDistribution(senderChainKey_C) ────→ Alice, Bob
+
+  [4. GROUP MESSAGE — Each sender uses their own KDF chain]
+
+      messageKey_n   = HMAC-SHA256(chainKey_n, 0x01)
+      chainKey_{n+1} = HMAC-SHA256(chainKey_n, 0x02)
+
+      Alice ──── GroupMsg(ciphertext, iteration=n) ────→ Bob, Carol
+                                    (broadcast via mesh)
+
+└──────────────────────────────────────────────────────┘
+```
+
 ### Key Properties
 
-- **Forward secrecy** — each message uses a unique message key derived via HMAC-SHA256. Compromising key `n` reveals nothing about keys `< n`.
-- **Break-in recovery** — after a compromise, DH ratchet steps generate fresh key material from new Curve25519 ephemeral keys.
-- **Multihop relay** — messages flood through the mesh with TTL=6, deduplicated via LRU cache. Alice can reach Bob through Charlie even without a direct link.
+- **Forward secrecy** — each message uses a unique message key. Compromising key `n` reveals nothing about keys `< n`.
+- **Break-in recovery** — after a compromise, DH ratchet steps generate fresh key material from new Curve25519 ephemeral keys. Each group member ratchets independently.
+- **Header encryption** — ratchet headers (public key, counters) are sealed with rotating header keys. Relay nodes see only opaque ciphertext.
+- **Sealed sender** — sender identity is hidden from relay nodes; only the intended recipient can learn who sent the message.
+- **Multihop relay** — messages flood through the mesh with TTL=6, deduplicated via LRU cache.
 - **Offline queue** — messages queued in memory when no peers are reachable; drained automatically on reconnect.
-- **Disappearing messages** — optional `expiresAt` timestamp; messages purged locally every 60 seconds.
+- **Disappearing messages** — optional `expiresAt` timestamp; messages purged locally every 60 seconds. Supported in both 1:1 and group conversations.
 
 ---
 
@@ -118,6 +158,11 @@ All primitives come from Apple's **[CryptoKit](https://developer.apple.com/docum
 | Messaging | Symmetric ratchet | HMAC-SHA256 | 256-bit |
 | Messaging | DH ratchet | X25519 | 256-bit |
 | Messaging | AEAD encryption | ChaCha20-Poly1305 | 256-bit |
+| Header encryption | AEAD | ChaCha20-Poly1305 | 256-bit |
+| Sealed sender | Key derivation | HKDF-SHA256 | 256-bit |
+| Sealed sender | AEAD | ChaCha20-Poly1305 | 256-bit |
+| Group Sender Keys | KDF chain | HMAC-SHA256 | 256-bit |
+| Group encryption | AEAD | ChaCha20-Poly1305 | 256-bit |
 | Storage | At-rest encryption | AES-256-GCM | 256-bit |
 | Identity verification | Safety numbers | SHA-512 | — |
 
@@ -132,6 +177,67 @@ All private keys and session states are stored in the **iOS Keychain** with `kSe
 
 ---
 
+## Features
+
+### Messaging
+
+| Feature | 1:1 | Group |
+|---|:---:|:---:|
+| Text messages | ✅ | ✅ |
+| Image sharing | ✅ | ✅ |
+| Voice messages (PTT, AAC M4A) | ✅ | ✅ |
+| Reply to message (quoted bubble) | ✅ | — |
+| Message reactions (6-emoji) | ✅ | — |
+| Read receipts (blue tick) | ✅ | — |
+| Disappearing messages (30s–7d) | ✅ | ✅ |
+| Forward message | ✅ | — |
+| Message search | ✅ | — |
+
+### Groups
+
+| Feature | Status |
+|---|---|
+| Create group (multi-peer picker) | ✅ |
+| Signal-style Sender Keys (per-member KDF chain) | ✅ |
+| Group invite via Double Ratchet channel | ✅ |
+| Sender Key Distribution to all members | ✅ |
+| Per-message forward secrecy (per-member) | ✅ |
+| Leave group | ✅ |
+| Member list sheet | ✅ |
+| Group push notifications | ✅ |
+| Out-of-order message recovery (up to skip 100) | ✅ |
+
+### Security & Privacy
+
+| Feature | Status |
+|---|---|
+| X3DH session establishment | ✅ |
+| Double Ratchet + Header Encryption | ✅ |
+| Sealed sender | ✅ |
+| Ed25519 message signatures | ✅ |
+| Safety Number verification (QR + manual) | ✅ |
+| App lock (Face ID / Touch ID / passcode) | ✅ |
+| Auto-lock on background | ✅ |
+| App Switcher blur | ✅ |
+| AES-256-GCM at-rest message storage | ✅ |
+| Block peer | ✅ |
+
+### Network & Transport
+
+| Feature | Status |
+|---|---|
+| Bluetooth LE transport | ✅ |
+| WiFi Direct transport | ✅ |
+| Multihop relay (TTL=6) | ✅ |
+| LRU relay deduplication | ✅ |
+| Offline message queue | ✅ |
+| Rate limiting (20 relays / 10s per peer) | ✅ |
+| Relay hop indicator in UI | ✅ |
+| Typing indicators | ✅ |
+| macOS Catalyst support | ✅ |
+
+---
+
 ## Architecture
 
 ```
@@ -143,49 +249,66 @@ SophaxChat/
 │   │   ├── IdentityManager.swift    # Ed25519 + X25519 identity lifecycle
 │   │   ├── PreKeyManager.swift      # X3DH prekey pool (SPK + 20 OTPKs)
 │   │   ├── X3DH.swift              # X3DH sender and receiver implementation
-│   │   └── DoubleRatchet.swift     # Double Ratchet (Signal spec)
+│   │   └── DoubleRatchet.swift     # Double Ratchet + Header Encryption (Signal spec §4.3)
+│   ├── Group/
+│   │   └── GroupTypes.swift        # GroupInfo, SenderKeyState, SenderKeyDistributionMessage
 │   ├── Network/
 │   │   ├── NetworkProtocol.swift   # Wire message types + WireMessageBuilder
 │   │   ├── MeshManager.swift       # MultipeerConnectivity P2P transport
 │   │   └── RelayRouter.swift       # Multihop relay with LRU dedup cache
 │   ├── Storage/
-│   │   └── MessageStore.swift      # AES-256-GCM encrypted at-rest storage
+│   │   ├── MessageStore.swift      # AES-256-GCM encrypted at-rest storage
+│   │   └── AttachmentStore.swift   # Encrypted blob store for images/audio
 │   └── ChatManager.swift           # High-level coordinator (session + routing)
 │
-├── SophaxChat/                      # iOS SwiftUI application
+├── SophaxChat/                      # iOS/macOS SwiftUI application
 │   ├── App/
 │   │   ├── SophaxChatApp.swift     # App entry point + blur-on-background
 │   │   └── AppState.swift          # @MainActor observable state
 │   └── Views/
 │       ├── Onboarding/             # First-run username setup
-│       ├── Chat/                   # Chat list, bubbles, relay indicator
-│       └── Settings/               # Safety number verification
+│       ├── Chat/                   # Chat list, 1:1 and group bubbles, relay indicator
+│       └── Settings/               # Safety number verification, app lock
 │
 └── Tests/SophaxChatCoreTests/
     └── CryptoTests.swift           # X3DH symmetry + Double Ratchet correctness
 ```
 
+> **macOS:** The app runs on macOS 14+ via Catalyst. `AVAudioSession` calls are guarded with `#if !targetEnvironment(macCatalyst)`. Peer discovery works over WiFi on macOS.
+
 ### Data Flow
 
 ```
 SwiftUI View
-    │  sendMessage()
+    │  sendMessage() / sendGroupMessage()
     ▼
-ChatManager                  ← single coordinator, all state on main thread
+AppState (@MainActor)
     │
-    ├─ buildOutboundWire()   ← X3DH init (new session) or DR encrypt (existing)
+    ▼
+ChatManager                  ← single coordinator, NSLock session mutex
     │
-    ├─ sendOrQueue()
-    │       ├─ mesh.send()           if peer directly connected
-    │       ├─ mesh.broadcast()      if peer reachable via relay (RelayEnvelope)
-    │       └─ pendingQueue[]        if no connectivity (drained on reconnect)
+    ├─ 1:1 path
+    │   ├─ buildOutboundWire()   ← X3DH init (new session) or DR+HE encrypt
+    │   ├─ sealedSenderWrap()    ← ECDH(ephemeral, recipientDH) → ChaChaPoly
+    │   └─ sendOrQueue()
+    │           ├─ mesh.send()           if peer directly connected
+    │           ├─ mesh.broadcast()      relay via RelayEnvelope (TTL=6)
+    │           └─ pendingQueue[]        offline; drained on reconnect
+    │
+    ├─ group path
+    │   ├─ senderKeyRatchetStep()  ← HMAC-SHA256(chainKey, 0x01/0x02)
+    │   ├─ ChaChaPoly encrypt      ← with per-message key
+    │   └─ mesh.broadcast()        ← GroupWireMessage to all members
     │
     └─ didReceiveMessage()
-            ├─ .hello         → store PreKeyBundle, drain pending queue
-            ├─ .initiateSession → X3DH receiver, DR init, decrypt first msg
-            ├─ .message       → DR decrypt, send ACK
-            ├─ .ack           → update message status
-            └─ .relay         → if for me: process inner; if not: forward (TTL-1)
+            ├─ .hello                  → store PreKeyBundle, drain queue
+            ├─ .initiateSession        → X3DH receiver, DR init, decrypt
+            ├─ .message                → DR+HE decrypt, send ACK
+            ├─ .ack / .readReceipt     → update message status
+            ├─ .relay                  → process inner or forward (TTL-1)
+            ├─ .groupInvite            → store group, generate sender chain, distribute SKD
+            ├─ .groupMessage           → v2: ratchet peer chain; v1: shared key fallback
+            └─ .senderKeyDistribution  → store peer sender chain state
 ```
 
 ---
@@ -196,12 +319,13 @@ ChatManager                  ← single coordinator, all state on main thread
 
 | Requirement | Version |
 |---|---|
-| Xcode | 15.0+ |
+| Xcode | 16.0+ |
 | iOS deployment target | 17.0+ |
+| macOS deployment target | 14.0+ (Catalyst) |
 | Physical devices | 2× iPhone (MultipeerConnectivity requires real hardware) |
 | XcodeGen | latest |
 
-> **Note:** The Swift core library (`SophaxChatCore`) builds without Xcode via `swift build`. Physical devices are only required to test P2P connectivity.
+> **Note:** The Swift core library (`SophaxChatCore`) builds without Xcode via `swift build`. Physical devices are required to test P2P connectivity; the simulator does not support MultipeerConnectivity peer discovery.
 
 ### Build
 
@@ -246,6 +370,8 @@ Tests cover: X3DH key symmetry (with/without OTPK), Double Ratchet bidirectional
 
 ## Security
 
+See [SECURITY.md](SECURITY.md) for the full threat model, cryptographic primitive table, protocol details, and security review findings.
+
 ### What SophaxChat protects against
 
 | Threat | Protection |
@@ -255,81 +381,82 @@ Tests cover: X3DH key symmetry (with/without OTPK), Double Ratchet bidirectional
 | Replay attacks | Unique nonce per message; message-ID deduplication at storage layer |
 | Past message compromise | Forward secrecy via symmetric ratchet (per-message keys) |
 | Future message compromise | Break-in recovery via DH ratchet (fresh Curve25519 ephemeral keys) |
-| Session eavesdropping by relay | Inner message E2EE; relay nodes see envelope metadata only |
-| Data at rest | AES-256-GCM per-conversation encrypted files |
-| iCloud backup exfiltration | `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`; backup excluded |
-| App Switcher screenshot | App content blurred on `UIApplication.willResignActiveNotification` |
-| DoS via oversized messages | Input validation: message ≤ 64 KB, username ≤ 64 chars |
+| Header metadata leakage | Header Encryption — relay nodes see only opaque ciphertext |
+| Sender identity leakage | Sealed sender — sender hidden from relay nodes via ECDH wrapping |
+| Data at rest | AES-256-GCM encrypted message and attachment store |
+| iCloud backup exfiltration | `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`; keys never backed up |
+| App Switcher screenshot | Content blurred on `willResignActive` |
+| Unauthorized app access | App lock: Face ID / Touch ID / passcode, auto-lock on background |
+| DoS via oversized messages | Attachment ≤ 512 KB; username ≤ 64 chars |
 | Prekey exhaustion | OTPK pool auto-replenished when below 50%; SPK rotated every 7 days |
 
 ### Identity verification
 
-Each user has a **Safety Number** — a 60-digit fingerprint derived from SHA-512 of their own identity keys, displayed as 12 groups of 5 digits. Both numbers are shown side by side in the verification screen: each party reads their own number aloud to the other. If both match on both devices, the connection is authentic.
+Each user has a **Safety Number** — a 60-digit fingerprint derived from SHA-512 of their identity keys. Both numbers are shown side by side in the verification screen: each party reads their own number aloud to the other. Scan via QR code or compare manually.
 
-### Known limitations (MVP)
+### Known limitations
 
-These are architectural limitations that will be addressed in future releases:
+See [SECURITY.md § Security Review Findings](SECURITY.md) for full details. Key items:
 
-| Limitation | Impact | Roadmap |
+| Finding | Severity | Summary |
 |---|---|---|
-| No header encryption | Ratchet headers (key rotation events, message count) visible to relay nodes | v0.4 |
-| No sealed sender | Sender peerID visible in wire envelope | v0.5 |
-| No group messaging | 1:1 sessions only | v0.6 |
-| No store-and-forward | Offline recipients miss messages (unless relayed via intermediate peer) | v0.6 |
-| No independent audit | See responsible disclosure below | Planned |
+| H-1 | HIGH | No group re-keying on member leave — departed member retains decryption ability |
+| M-1 | MEDIUM | Group skipped message keys not cached — out-of-order messages may be irrecoverable |
+| M-2 | MEDIUM | Sender Key Distribution may arrive after first messages in high-load scenarios |
+| M-3 | MEDIUM | One-time prekey exhaustion window reduces X3DH entropy temporarily |
+| M-4 | MEDIUM | Notification previews may expose content on lock screen |
 
 ### Responsible Disclosure
 
-Do not open public issues for security bugs.
+Do not open public issues for security bugs. Contact **security@sophax.com**. We aim to respond within 72 hours. Coordinated disclosure window: 90 days.
 
 ---
 
 ## Roadmap
 
-### v0.2 — Current
+### Completed
+
 - [x] X3DH session establishment
 - [x] Double Ratchet messaging
+- [x] Header Encryption (Double Ratchet extension — hides ratchet metadata from relay)
+- [x] Sealed sender (hides sender identity from relay nodes)
 - [x] Multihop relay (TTL flooding + LRU dedup)
 - [x] Offline message queue
-- [x] Disappearing messages (per-message expiry, 30s–7d, UI toggle in chat)
+- [x] Disappearing messages (30s–7d, per-message expiry, 1:1 and group)
 - [x] SPK rotation (7-day automatic)
 - [x] OTPK replenishment
-- [x] Safety Numbers
-- [x] Relay hop indicator in UI
-
-### v0.3 — Short-term
-- [x] QR code Safety Number scanner
-- [x] Push-to-talk (voice messages, AAC M4A, encrypted)
+- [x] Safety Numbers (manual + QR scan)
+- [x] Rate limiting on relay forwarding (20 / 10s per peer)
+- [x] Session initiation deduplication
+- [x] Push-to-talk voice messages (AAC M4A, encrypted)
 - [x] Image sharing (encrypted, tap-to-zoom, PhotosPicker + camera)
 - [x] Unread message badges
 - [x] Delete conversation + block peer
-
-### v0.4 — Security hardening
-- [x] **Header encryption** (Double Ratchet extension — hides metadata)
-- [x] **Sealed sender** (hides sender identity from relay nodes)
-- [x] Rate limiting on relay forwarding (20 relays / 10s per peer)
-- [x] Per-peer session initiation deduplication
-
-### v0.5 — UX & messaging features
 - [x] Reply to message (quoted bubble, context menu)
-- [x] Read receipts (blue tick when recipient reads)
+- [x] Read receipts (blue tick)
 - [x] App lock (Face ID / Touch ID / passcode, auto-lock on background)
-- [x] Contact renaming (custom display names, persisted locally)
-- [ ] Local push notifications (when app is backgrounded)
-- [ ] Message reactions (emoji, long-press)
+- [x] Contact renaming
+- [x] Local push notifications (grouped by thread, cleared on read)
+- [x] Forward message
+- [x] Message search (per-conversation)
+- [x] Message reactions (6-emoji picker, tappable pill row)
+- [x] Group messaging (Signal-style Sender Keys — per-member KDF chains)
+- [x] Group images and voice messages
+- [x] Group disappearing messages
+- [x] Group member list + leave group
+- [x] macOS Catalyst support
 
-### v0.6 — Platform
-- [ ] macOS support (Catalyst / native AppKit)
-- [ ] Background operation (BLE central/peripheral mode)
-- [ ] Custom MCSession transport adapter (pluggable: LoRa, audio covert channel)
+### Pending
 
-### v0.7 — Group messaging
-- [ ] Group sessions (Sender Keys protocol or MLS)
+- [ ] **Group re-keying on member change** (H-1 — highest priority security fix)
+- [ ] Group skipped message key cache (M-1)
+- [ ] Notification content hiding on lock screen (M-4)
+- [ ] Background operation (BLE central/peripheral mode for background delivery)
 - [ ] Channel discovery (broadcast announcements)
-
-### Long-term
+- [ ] Store-and-forward via trusted relay peers
 - [ ] Independent third-party security audit (NLnet / NGI grant target)
 - [ ] Hardware security key support (FIDO2 / Secure Enclave binding)
+- [ ] Custom transport adapter (pluggable: LoRa, audio covert channel)
 
 ---
 
@@ -344,9 +471,9 @@ Pull requests are welcome. Before contributing:
 
 ### Areas where help is especially welcome
 
+- **Group re-keying** — implement H-1 fix (forward secrecy on member leave)
 - **UI/UX** — the interface is functional, not polished
-- **Tests** — relay dedup, session initiation edge cases, offline queue
-- **macOS port** — Catalyst bridge
+- **Tests** — relay dedup, group sender key, session initiation edge cases
 - **Localization** — the app currently ships in English only
 
 ---

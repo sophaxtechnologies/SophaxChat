@@ -190,6 +190,38 @@ struct ChatView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
+            // Key-change warning banner
+            if appState.hasKeyChanged(for: peer.id, currentSafetyNumber: peer.safetyNumber) {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.shield.fill")
+                        .foregroundStyle(.red)
+                    Text("\(peer.username)'s security key changed — verify identity before continuing.")
+                        .font(.caption)
+                    Spacer()
+                    Button("Verify") { showingSafetyNumber = true }
+                        .font(.caption.bold())
+                        .foregroundStyle(.red)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.red.opacity(0.08))
+            }
+
+            // OPK exhaustion warning banner
+            if appState.noOPKSessions.contains(peer.id) {
+                HStack(spacing: 6) {
+                    Image(systemName: "key.slash")
+                        .foregroundStyle(.yellow)
+                    Text("Session established without one-time prekey — slightly reduced initial security.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(Color.yellow.opacity(0.08))
+            }
+
             // Disappearing messages indicator
             if disappearingInterval != .off {
                 HStack(spacing: 4) {
@@ -347,7 +379,13 @@ struct ChatView: View {
                         Button {
                             showingSafetyNumber = true
                         } label: {
-                            Label("Verify Identity", systemImage: "checkmark.shield")
+                            if appState.isVerified(peer.id, currentSafetyNumber: peer.safetyNumber) {
+                                Label("Identity Verified", systemImage: "checkmark.shield.fill")
+                            } else if appState.hasKeyChanged(for: peer.id, currentSafetyNumber: peer.safetyNumber) {
+                                Label("Key Changed — Verify Now!", systemImage: "exclamationmark.shield.fill")
+                            } else {
+                                Label("Verify Identity", systemImage: "checkmark.shield")
+                            }
                         }
                         Button {
                             renameText = appState.peerAliases[peer.id] ?? ""
@@ -514,6 +552,27 @@ struct SafetyNumberView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 10) {
+                    if appState.isVerified(peer.id, currentSafetyNumber: peer.safetyNumber) {
+                        Label("Identity Verified", systemImage: "checkmark.shield.fill")
+                            .foregroundStyle(.green)
+                            .font(.subheadline.bold())
+                    } else {
+                        Button {
+                            appState.markPeerVerified(peer.id, safetyNumber: peer.safetyNumber)
+                            dismiss()
+                        } label: {
+                            Label("Mark as Verified", systemImage: "checkmark.shield")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .padding(.horizontal)
+                    }
+                }
+                .padding(.vertical, 12)
+                .background(.bar)
             }
             .sheet(isPresented: $showingPeerQR) {
                 QRSheet(title: "\(peer.username)'s Safety Number", safetyNumber: peer.safetyNumber)

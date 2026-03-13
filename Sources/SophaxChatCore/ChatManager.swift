@@ -88,6 +88,13 @@ public protocol ChatManagerDelegate: AnyObject {
     func chatManager(_ manager: ChatManager, didJoinGroup group: GroupInfo)
     /// A group chat message was decrypted and stored.
     func chatManager(_ manager: ChatManager, didReceiveGroupMessage message: StoredMessage, inGroup groupID: String)
+    /// An X3DH session was established WITHOUT a one-time prekey (reduced entropy window).
+    func chatManager(_ manager: ChatManager, sessionEstablishedWithPeer peerID: String, usedOPK: Bool)
+    /// A previously-known peer has come back online after being offline.
+    func chatManager(_ manager: ChatManager, peerDidReconnect peer: KnownPeer)
+    /// Emoji reactions on a group message were updated.
+    func chatManager(_ manager: ChatManager, didUpdateGroupReactions reactions: [String: String],
+                     onMessageID messageID: String, groupID: String)
 }
 
 // MARK: - ChatManager
@@ -127,6 +134,14 @@ public final class ChatManager: @unchecked Sendable {
     /// Drained as soon as a path (direct or relay) becomes available.
     private var pendingQueue: [String: [(wire: WireMessage, messageID: String)]] = [:]
 
+    /// Codable wrapper so pending queue items can be persisted to disk.
+    private struct PendingQueueItem: Codable {
+        let wire:      WireMessage
+        let messageID: String
+    }
+
+    private let pendingQueueFileName = "pending_queue"
+
     /// Fires every 60 seconds to purge messages whose expiresAt has passed.
     private var expiryTimer: Timer?
 
@@ -160,6 +175,7 @@ public final class ChatManager: @unchecked Sendable {
         mesh.start()
         try? preKeys.rotateIfNeeded()
         scheduleExpiryTimer()
+        loadPersistedQueue()
     }
 
     /// Stop the mesh (call on app background / termination).
@@ -167,6 +183,43 @@ public final class ChatManager: @unchecked Sendable {
         mesh.stop()
         expiryTimer?.invalidate()
         expiryTimer = nil
+        persistQueue()
+    }
+
+    // MARK: - Public: Identity broadcast
+
+    /// Re-broadcast our Hello (PreKeyBundle) to all currently-connected peers.
+    /// Call after a username change so peers pick up the new display name.
+    public func broadcastHello() {
+        guard let bundle = try? preKeys.generateBundle() else { return }
+        let hello = HelloMessage(bundle: bundle)
+        guard let wire = try? wireBuilder.build(.hello, payload: hello) else { return }
+        try? mesh.broadcast(wire)
+    }
+
+    // MARK: - Public: Group reactions
+
+    /// Send an emoji reaction (or remove one) on a specific group message.
+    public func sendGroupReaction(emoji: String?, toMessageID messageID: String, groupID: String, members: [String]) {
+        let myID    = identity.publicIdentity.peerID
+        let payload = GroupReactionMessage(groupID: groupID, targetMessageID: messageID, emoji: emoji)
+        guard let wire = try? wireBuilder.build(.groupReaction, payload: payload) else { return }
+        for peerID in members where peerID != myID {
+            try? sendOrQueue(wire, toPeerID: peerID, messageID: UUID().uuidString)
+        }
+        // Apply locally
+        let convID = "group.\(groupID)"
+        guard let msgs = try? messageStore.messages(forPeer: convID),
+              let idx  = msgs.firstIndex(where: { $0.id == messageID }) else { return }
+        var reactions = msgs[idx].reactions ?? [:]
+        if let e = emoji { reactions[myID] = e } else { reactions.removeValue(forKey: myID) }
+        try? messageStore.updateReactions(reactions, forMessageID: messageID, peerID: convID)
+        let finalReactions = reactions
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didUpdateGroupReactions: finalReactions,
+                                       onMessageID: messageID, groupID: groupID)
+        }
     }
 
     private func scheduleExpiryTimer() {
@@ -308,7 +361,7 @@ public final class ChatManager: @unchecked Sendable {
     }
 
     /// Send a text message to all members of a group.
-    public func sendGroupMessage(_ body: String, groupID: String, members: [String], expiresAt: Date? = nil) {
+    public func sendGroupMessage(_ body: String, groupID: String, members: [String], expiresAt: Date? = nil, replyToID: String? = nil) {
         guard !body.isEmpty else { return }
 
         let myID       = identity.publicIdentity.peerID
@@ -348,14 +401,15 @@ public final class ChatManager: @unchecked Sendable {
             timestamp:          timestamp,
             ciphertext:         ciphertext,
             senderKeyIteration: senderKeyIteration,
-            expiresAt:          expiresAt
+            expiresAt:          expiresAt,
+            replyToID:          replyToID
         )
 
         // Store locally as sent (mark delivered immediately — no per-member ack for group)
         let stored = StoredMessage(
             id: messageID, peerID: "group.\(groupID)",
             direction: .sent, body: body, status: .delivered,
-            expiresAt: expiresAt, senderID: myID
+            replyToID: replyToID, expiresAt: expiresAt, senderID: myID
         )
         try? messageStore.append(message: stored)
         DispatchQueue.main.async { [weak self] in
@@ -379,7 +433,8 @@ public final class ChatManager: @unchecked Sendable {
         audioDuration: Double? = nil,
         groupID: String,
         members: [String],
-        expiresAt: Date? = nil
+        expiresAt: Date? = nil,
+        replyToID: String? = nil
     ) {
         guard data.count <= Self.maxAttachmentBytes else {
             delegate?.chatManager(self, didEncounterError:
@@ -441,13 +496,14 @@ public final class ChatManager: @unchecked Sendable {
             attachmentMimeType:   mimeType,
             audioDuration:        audioDuration,
             senderKeyIteration:   senderKeyIteration,
-            expiresAt:            expiresAt
+            expiresAt:            expiresAt,
+            replyToID:            replyToID
         )
 
         let stored = StoredMessage(
             id: messageID, peerID: "group.\(groupID)",
             direction: .sent, body: displayBody, status: .delivered,
-            expiresAt: expiresAt,
+            replyToID: replyToID, expiresAt: expiresAt,
             attachmentID: attachmentID, attachmentMimeType: mimeType,
             audioDuration: audioDuration, senderID: myID
         )
@@ -639,6 +695,7 @@ public final class ChatManager: @unchecked Sendable {
             }
             queue.append((wire: wire, messageID: messageID))
             pendingQueue[peerID] = queue
+            persistQueue()
         }
     }
 
@@ -716,12 +773,20 @@ public final class ChatManager: @unchecked Sendable {
         let peerID       = bundle.peerID
         let safetyNumber = generateSafetyNumber(for: bundle)
         let peer         = KnownPeer(from: bundle, safetyNumber: safetyNumber)
+
+        // Detect reconnect: peer was known but is now coming back online
+        let wasOffline = knownPeers[peerID].map { !$0.isOnline } ?? false
+
         knownPeers[peerID]  = peer
         peerBundles[peerID] = bundle
 
+        let reconnected = wasOffline
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.chatManager(self, didDiscoverPeer: peer)
+            if reconnected {
+                self.delegate?.chatManager(self, peerDidReconnect: peer)
+            }
         }
 
         // Peer's bundle is now known — drain any messages queued before Hello arrived
@@ -748,8 +813,17 @@ public final class ChatManager: @unchecked Sendable {
 
         // Retrieve and consume the one-time prekey if Alice used one,
         // then replenish the supply so future sessions have keys available.
-        let otpk = payload.usedOneTimePreKeyId.flatMap { preKeys.consumeOneTimePreKey(id: $0) }
+        let usedOPKId = payload.usedOneTimePreKeyId
+        let otpk = usedOPKId.flatMap { preKeys.consumeOneTimePreKey(id: $0) }
         try? preKeys.replenishIfNeeded()
+
+        // Notify delegate so the UI can warn when no OPK was available (reduced entropy)
+        let usedOPK = usedOPKId != nil
+        let notifyPeerID = peerID
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, sessionEstablishedWithPeer: notifyPeerID, usedOPK: usedOPK)
+        }
 
         // X3DH: Bob (responder) side — produces the same shared secret as Alice
         let sharedSecret = try X3DH.initiateReceiver(
@@ -957,6 +1031,27 @@ public final class ChatManager: @unchecked Sendable {
         }
     }
 
+    private func handleGroupReaction(_ payload: GroupReactionMessage, fromPeer peerID: String) {
+        let convID = "group.\(payload.groupID)"
+        guard let msgs = try? messageStore.messages(forPeer: convID),
+              let idx  = msgs.firstIndex(where: { $0.id == payload.targetMessageID }) else { return }
+        var reactions = msgs[idx].reactions ?? [:]
+        if let emoji = payload.emoji {
+            reactions[peerID] = emoji
+        } else {
+            reactions.removeValue(forKey: peerID)
+        }
+        try? messageStore.updateReactions(reactions, forMessageID: payload.targetMessageID, peerID: convID)
+        let messageID      = payload.targetMessageID
+        let groupID        = payload.groupID
+        let finalReactions = reactions
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didUpdateGroupReactions: finalReactions,
+                                       onMessageID: messageID, groupID: groupID)
+        }
+    }
+
     private func handleGroupInviteReceived(_ inviteData: Data, fromPeer peerID: String) {
         guard let invite = try? JSONDecoder().decode(GroupInvitePayload.self, from: inviteData) else { return }
         let myID = identity.publicIdentity.peerID
@@ -1069,11 +1164,13 @@ public final class ChatManager: @unchecked Sendable {
             body:               body,
             timestamp:          payload.timestamp,
             status:             .delivered,
+            replyToID:          payload.replyToID,
             expiresAt:          clampedExpiry(payload.expiresAt),
             attachmentID:       attachmentID,
             attachmentMimeType: payload.attachmentMimeType,
             audioDuration:      payload.audioDuration,
-            senderID:           payload.senderPeerID
+            senderID:           payload.senderPeerID,
+            receivedAt:         Date()
         )
         try? messageStore.append(message: stored)
         let groupID = payload.groupID
@@ -1167,8 +1264,30 @@ public final class ChatManager: @unchecked Sendable {
             }
             try processRelayedInnerMessage(inner, hopCount: hopCount)
 
+        case .groupReaction:
+            let payload = try wireBuilder.decodePayload(GroupReactionMessage.self, from: message)
+            handleGroupReaction(payload, fromPeer: message.senderID)
+
         case .relay, .typing:
             break   // No relay-of-relay; typing over relay has no value
+        }
+    }
+
+    // MARK: - Private: Persistent queue
+
+    private func persistQueue() {
+        let serializable: [String: [PendingQueueItem]] = pendingQueue.mapValues { items in
+            items.map { PendingQueueItem(wire: $0.wire, messageID: $0.messageID) }
+        }
+        guard let data = try? JSONEncoder().encode(serializable) else { return }
+        try? messageStore.saveEncryptedBlob(data, fileName: pendingQueueFileName)
+    }
+
+    private func loadPersistedQueue() {
+        guard let data = messageStore.loadEncryptedBlob(fileName: pendingQueueFileName),
+              let decoded = try? JSONDecoder().decode([String: [PendingQueueItem]].self, from: data) else { return }
+        pendingQueue = decoded.mapValues { items in
+            items.map { (wire: $0.wire, messageID: $0.messageID) }
         }
     }
 
@@ -1301,6 +1420,10 @@ extension ChatManager: MeshManagerDelegate {
             case .groupMessage:
                 let payload = try wireBuilder.decodePayload(GroupWireMessage.self, from: message)
                 handleGroupMessage(payload)
+
+            case .groupReaction:
+                let payload = try wireBuilder.decodePayload(GroupReactionMessage.self, from: message)
+                handleGroupReaction(payload, fromPeer: message.senderID)
 
             case .relay:
                 let envelope = try wireBuilder.decodePayload(RelayEnvelope.self, from: message)

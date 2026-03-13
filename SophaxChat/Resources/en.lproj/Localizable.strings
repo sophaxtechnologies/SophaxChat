@@ -1,0 +1,77 @@
+/* SophaxChat — English strings */
+
+/* Chat List */
+"chat.list.title" = "SophaxChat";
+"chat.list.section.conversations" = "Conversations";
+"chat.list.section.groups" = "Groups";
+"chat.list.section.nearby" = "Nearby";
+"chat.list.empty.title" = "Looking for nearby devices…";
+"chat.list.empty.subtitle" = "Make sure both devices have the app open and are within Bluetooth/WiFi range.";
+"chat.list.empty.hint" = "Tap to send a message";
+
+/* Chat */
+"chat.input.placeholder" = "Message";
+"chat.reply.yourself" = "Reply to yourself";
+"chat.reply.to" = "Reply to %@";
+"chat.disappearing.indicator" = "Messages disappear after %@";
+"chat.key.changed.warning" = "%@'s security key changed — verify identity before continuing.";
+"chat.key.changed.action" = "Verify";
+"chat.opk.warning" = "Session established without one-time prekey — slightly reduced initial security.";
+"chat.context.reply" = "Reply";
+"chat.context.copy" = "Copy";
+"chat.context.delete" = "Delete";
+"chat.context.forward" = "Forward";
+
+/* Safety Number */
+"safetyNumber.title" = "Verify Identity";
+"safetyNumber.instructions" = "Compare both numbers out loud or in person. If they match on both devices, the connection is authentic.";
+"safetyNumber.warning" = "If either number doesn't match, someone may be intercepting your messages. Do not continue.";
+"safetyNumber.theirLabel" = "%@'s number";
+"safetyNumber.theirSublabel" = "They read this to you";
+"safetyNumber.myLabel" = "Your number";
+"safetyNumber.mySublabel" = "You read this to them";
+"safetyNumber.markVerified" = "Mark as Verified";
+"safetyNumber.verified" = "Identity Verified";
+
+/* Groups */
+"group.reply.to" = "Reply to %@";
+"group.members.section" = "%d Members";
+"group.leave.title" = "Leave \"%@\"?";
+"group.leave.message" = "You will no longer receive messages from this group. This cannot be undone.";
+"group.leave.action" = "Leave Group";
+"group.delivery.hint" = "→ %d";
+
+/* Identity */
+"identity.title" = "My Identity";
+"identity.changeUsername" = "Change Username";
+"identity.changeUsername.prompt" = "Your new username will be shared with nearby peers.";
+"identity.changeUsername.placeholder" = "New username";
+
+/* Settings */
+"settings.title" = "Settings";
+"settings.blocked.title" = "Blocked Users";
+"settings.blocked.empty" = "No blocked users";
+"settings.blocked.footer" = "Blocked users cannot send you messages. Unblocking allows future messages if they are nearby.";
+"settings.blocked.unblock" = "Unblock";
+"settings.security.title" = "Security";
+"settings.applock.label" = "App Lock";
+"settings.applock.footer" = "Require Face ID, Touch ID, or passcode to open SophaxChat.";
+"settings.about.title" = "About";
+
+/* Reconnect banner */
+"peer.reconnected" = "%@ is back online";
+
+/* Onboarding */
+"onboarding.title" = "Welcome to SophaxChat";
+"onboarding.subtitle" = "No servers. No accounts. Just encrypted messages.";
+"onboarding.username.placeholder" = "Your username";
+"onboarding.continue" = "Continue";
+
+/* Common */
+"common.done" = "Done";
+"common.cancel" = "Cancel";
+"common.save" = "Save";
+"common.ok" = "OK";
+"common.delete" = "Delete";
+"common.block" = "Block";
+"common.error" = "Error";

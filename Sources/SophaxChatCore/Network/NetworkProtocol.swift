@@ -93,6 +93,8 @@ public enum WireMessageType: String, Codable, Sendable {
     case reaction
     /// Group chat message encrypted with the shared group symmetric key.
     case groupMessage
+    /// Emoji reaction on a specific group message.
+    case groupReaction
 }
 
 // MARK: - Hello (Handshake)
@@ -284,6 +286,8 @@ public struct GroupWireMessage: Codable, Sendable {
     public let senderKeyIteration:   UInt32?
     /// Disappearing message: auto-delete at this point; nil = persistent.
     public let expiresAt:            Date?
+    /// Message ID this message is replying to (nil = not a reply).
+    public let replyToID:            String?
 
     public init(
         groupID:              String,
@@ -296,7 +300,8 @@ public struct GroupWireMessage: Codable, Sendable {
         attachmentMimeType:   String? = nil,
         audioDuration:        Double? = nil,
         senderKeyIteration:   UInt32? = nil,
-        expiresAt:            Date?   = nil
+        expiresAt:            Date?   = nil,
+        replyToID:            String? = nil
     ) {
         self.groupID              = groupID
         self.messageID            = messageID
@@ -309,6 +314,23 @@ public struct GroupWireMessage: Codable, Sendable {
         self.audioDuration        = audioDuration
         self.senderKeyIteration   = senderKeyIteration
         self.expiresAt            = expiresAt
+        self.replyToID            = replyToID
+    }
+}
+
+// MARK: - Group Reaction
+
+/// Sent when a peer reacts to (or removes a reaction from) a group message.
+public struct GroupReactionMessage: Codable, Sendable {
+    public let groupID:          String
+    public let targetMessageID:  String
+    /// The emoji string, or nil to clear the reaction.
+    public let emoji:            String?
+
+    public init(groupID: String, targetMessageID: String, emoji: String?) {
+        self.groupID         = groupID
+        self.targetMessageID = targetMessageID
+        self.emoji           = emoji
     }
 }
 
@@ -420,6 +442,10 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
     public var reactions:          [String: String]?
     /// For group messages: the actual sender's peerID. nil for direct messages.
     public let senderID:           String?
+    /// Wall-clock time when this device received/decrypted the message.
+    /// Used for display ordering instead of sender-supplied `timestamp` (which can be spoofed).
+    /// Nil for messages stored before this field was added (backward compat).
+    public let receivedAt:         Date?
 
     public enum Direction: String, Codable, Sendable {
         case sent, received
@@ -443,7 +469,8 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
         attachmentMimeType: String?         = nil,
         audioDuration:      Double?         = nil,
         reactions:          [String: String]? = nil,
-        senderID:           String?         = nil
+        senderID:           String?         = nil,
+        receivedAt:         Date?           = nil
     ) {
         self.id                 = id
         self.peerID             = peerID
@@ -459,6 +486,7 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
         self.audioDuration      = audioDuration
         self.reactions          = reactions
         self.senderID           = senderID
+        self.receivedAt         = receivedAt
     }
 }
 

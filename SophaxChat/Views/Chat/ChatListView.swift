@@ -12,6 +12,7 @@ struct ChatListView: View {
     @State private var showingSettings    = false
     @State private var showingCreateGroup = false
     @State private var peerToBlock: KnownPeer? = nil
+    @State private var reconnectBannerPeer: KnownPeer? = nil
 
     var body: some View {
         NavigationStack {
@@ -127,6 +128,32 @@ struct ChatListView: View {
             }
             .refreshable { }
         }
+        .onChange(of: appState.reconnectedPeer?.id) { _, peerID in
+            reconnectBannerPeer = appState.reconnectedPeer
+        }
+        .overlay(alignment: .top) {
+            if let peer = reconnectBannerPeer {
+                HStack(spacing: 8) {
+                    Circle().fill(.green).frame(width: 8, height: 8)
+                    Text("\(appState.displayName(for: peer)) is back online")
+                        .font(.subheadline)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.thinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .onTapGesture { withAnimation { reconnectBannerPeer = nil } }
+                .task {
+                    try? await Task.sleep(for: .seconds(3))
+                    withAnimation { reconnectBannerPeer = nil }
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: reconnectBannerPeer?.id)
         .sheet(isPresented: $showingIdentity) {
             IdentityView()
         }

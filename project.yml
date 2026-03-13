@@ -41,6 +41,9 @@ targets:
       path: SophaxChat/Info.plist
       properties:
         CFBundleDisplayName: SophaxChat
+        CFBundleLocalizations:
+          - en
+          - cs
         UILaunchScreen:
           UIColorName: "AccentColor"
         NSFaceIDUsageDescription: "SophaxChat uses Face ID to unlock the app when app lock is enabled."
