@@ -155,6 +155,48 @@ public final class KeychainManager {
         SecItemDelete(query as CFDictionary)
     }
 
+    // MARK: - Sender Key States (v2 group messaging)
+
+    /// Save all peer sender key states for a group as a single JSON blob.
+    /// Key: peerID → SenderKeyState.
+    public func savePeerSenderKeyStates(_ states: [String: SenderKeyState], groupID: String) throws {
+        let data = try JSONEncoder().encode(states)
+        try save(data: data, account: "skd.peers.\(groupID)")
+    }
+
+    /// Load peer sender key states; returns empty dict if none stored yet.
+    public func loadPeerSenderKeyStates(groupID: String) -> [String: SenderKeyState] {
+        guard let data   = try? load(account: "skd.peers.\(groupID)"),
+              let states = try? JSONDecoder().decode([String: SenderKeyState].self, from: data)
+        else { return [:] }
+        return states
+    }
+
+    public func saveMySenderKeyState(_ state: SenderKeyState, groupID: String) throws {
+        let data = try JSONEncoder().encode(state)
+        try save(data: data, account: "skd.mine.\(groupID)")
+    }
+
+    /// Returns nil if no sender key has been generated for this group yet.
+    public func loadMySenderKeyState(groupID: String) -> SenderKeyState? {
+        guard let data  = try? load(account: "skd.mine.\(groupID)"),
+              let state = try? JSONDecoder().decode(SenderKeyState.self, from: data)
+        else { return nil }
+        return state
+    }
+
+    /// Delete all sender key material for a group (called on leave).
+    public func deleteAllSenderKeyStates(groupID: String) {
+        let q1: [CFString: Any] = [kSecClass: kSecClassGenericPassword,
+                                   kSecAttrService: service,
+                                   kSecAttrAccount: "skd.peers.\(groupID)"]
+        SecItemDelete(q1 as CFDictionary)
+        let q2: [CFString: Any] = [kSecClass: kSecClassGenericPassword,
+                                   kSecAttrService: service,
+                                   kSecAttrAccount: "skd.mine.\(groupID)"]
+        SecItemDelete(q2 as CFDictionary)
+    }
+
     // MARK: - Existence Check
 
     public func hasIdentity() -> Bool {

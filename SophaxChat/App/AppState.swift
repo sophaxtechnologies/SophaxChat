@@ -108,11 +108,12 @@ final class AppState: ObservableObject {
         chatManager?.createGroup(name: name, memberPeerIDs: memberPeerIDs)
     }
 
-    func sendGroupMessage(_ text: String, group: GroupInfo) {
-        chatManager?.sendGroupMessage(text, groupID: group.id, members: group.memberIDs)
+    func sendGroupMessage(_ text: String, group: GroupInfo, expiresAt: Date? = nil) {
+        chatManager?.sendGroupMessage(text, groupID: group.id, members: group.memberIDs,
+                                      expiresAt: expiresAt)
     }
 
-    func sendGroupImage(_ image: UIImage, group: GroupInfo) {
+    func sendGroupImage(_ image: UIImage, group: GroupInfo, expiresAt: Date? = nil) {
         var quality: CGFloat = 0.75
         var jpegData: Data? = image.jpegData(compressionQuality: quality)
         while let d = jpegData, d.count > 400_000, quality > 0.1 {
@@ -121,13 +122,15 @@ final class AppState: ObservableObject {
         }
         guard let data = jpegData else { return }
         chatManager?.sendGroupAttachment(data, mimeType: "image/jpeg",
-                                         groupID: group.id, members: group.memberIDs)
+                                         groupID: group.id, members: group.memberIDs,
+                                         expiresAt: expiresAt)
     }
 
-    func sendGroupAudio(_ data: Data, duration: Double, group: GroupInfo) {
+    func sendGroupAudio(_ data: Data, duration: Double, group: GroupInfo, expiresAt: Date? = nil) {
         chatManager?.sendGroupAttachment(data, mimeType: "audio/m4a",
                                          audioDuration: duration,
-                                         groupID: group.id, members: group.memberIDs)
+                                         groupID: group.id, members: group.memberIDs,
+                                         expiresAt: expiresAt)
     }
 
     func leaveGroup(_ group: GroupInfo) {

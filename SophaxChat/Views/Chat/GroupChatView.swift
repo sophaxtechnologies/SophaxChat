@@ -16,6 +16,10 @@ struct GroupChatView: View {
     @State private var messageText: String = ""
     @FocusState private var isInputFocused: Bool
 
+    // Disappearing messages
+    @State private var disappearingInterval: DisappearingInterval = .off
+    private var disappearingKey: String { "com.sophax.disappearingInterval.group.\(group.id)" }
+
     // Attachment / camera
     @State private var photoPickerItem: PhotosPickerItem? = nil
     @State private var showingCamera       = false
@@ -52,10 +56,27 @@ struct GroupChatView: View {
                 .onAppear {
                     proxy.scrollTo("bottom", anchor: .bottom)
                     appState.markGroupAsRead(group: group)
+                    // Restore disappearing messages setting
+                    if let saved = UserDefaults.standard.string(forKey: disappearingKey),
+                       let interval = DisappearingInterval(rawValue: saved) {
+                        disappearingInterval = interval
+                    }
                 }
                 .onChange(of: messages.count) { _, _ in
                     appState.markGroupAsRead(group: group)
                 }
+            }
+
+            // Disappearing messages indicator
+            if disappearingInterval != .off {
+                HStack(spacing: 4) {
+                    Image(systemName: "timer").font(.caption2)
+                    Text("Messages disappear after \(disappearingInterval.rawValue.lowercased())")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
             }
 
             Divider()
@@ -73,7 +94,8 @@ struct GroupChatView: View {
                     Task {
                         if let data = try? await item.loadTransferable(type: Data.self),
                            let image = UIImage(data: data) {
-                            appState.sendGroupImage(image, group: group)
+                            let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
+                            appState.sendGroupImage(image, group: group, expiresAt: expiresAt)
                         }
                         photoPickerItem = nil
                     }
@@ -101,7 +123,8 @@ struct GroupChatView: View {
                         .onEnded { _ in
                             voiceRecorder.stop { data, duration in
                                 guard let data, duration > 0.5 else { return }
-                                appState.sendGroupAudio(data, duration: duration, group: group)
+                                let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
+                                appState.sendGroupAudio(data, duration: duration, group: group, expiresAt: expiresAt)
                             }
                         }
                 )
@@ -130,6 +153,26 @@ struct GroupChatView: View {
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                // Disappearing messages timer
+                Menu {
+                    ForEach(DisappearingInterval.allCases) { interval in
+                        Button {
+                            disappearingInterval = interval
+                            UserDefaults.standard.set(interval.rawValue, forKey: disappearingKey)
+                        } label: {
+                            if disappearingInterval == interval {
+                                Label(interval.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(interval.rawValue)
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: disappearingInterval.icon)
+                        .foregroundStyle(disappearingInterval == .off ? .primary : .orange)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
@@ -177,7 +220,8 @@ struct GroupChatView: View {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         messageText = ""
-        appState.sendGroupMessage(text, group: group)
+        let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
+        appState.sendGroupMessage(text, group: group, expiresAt: expiresAt)
     }
 }
 

@@ -156,7 +156,12 @@ public struct MessageContent: Codable, Sendable {
         case audio
         /// Group invite — body is the group name; groupInviteData carries GroupInvitePayload JSON.
         case groupInvite
+        /// Sender key distribution (v2 groups) — senderKeyData carries SenderKeyDistributionMessage JSON.
+        case senderKeyDistribution
     }
+
+    /// JSON-encoded SenderKeyDistributionMessage — only set when type == .senderKeyDistribution.
+    public let senderKeyData: Data?
 
     public init(
         body:               String,
@@ -166,7 +171,8 @@ public struct MessageContent: Codable, Sendable {
         attachmentData:     Data?       = nil,
         attachmentMimeType: String?     = nil,
         audioDuration:      Double?     = nil,
-        groupInviteData:    Data?       = nil
+        groupInviteData:    Data?       = nil,
+        senderKeyData:      Data?       = nil
     ) {
         self.body               = body
         self.type               = type
@@ -177,6 +183,7 @@ public struct MessageContent: Codable, Sendable {
         self.attachmentMimeType = attachmentMimeType
         self.audioDuration      = audioDuration
         self.groupInviteData    = groupInviteData
+        self.senderKeyData      = senderKeyData
     }
 }
 
@@ -250,7 +257,13 @@ public struct ReadReceiptMessage: Codable, Sendable {
 
 // MARK: - Group Message
 
-/// Wire message for a group chat message, encrypted with the group symmetric key.
+/// Wire message for a group chat message.
+///
+/// Encryption:
+///   v1 (nil senderKeyIteration): ChaChaPoly with the shared group symmetric key.
+///   v2 (non-nil senderKeyIteration): ChaChaPoly with a per-message key derived from
+///     the sender's KDF chain at the given iteration (Signal-style Sender Keys).
+///
 /// Sent individually to each group member (via direct/relay/queue routing).
 public struct GroupWireMessage: Codable, Sendable {
     public let groupID:              String
@@ -266,6 +279,11 @@ public struct GroupWireMessage: Codable, Sendable {
     public let attachmentMimeType:   String?
     /// Audio duration in seconds (nil for non-audio).
     public let audioDuration:        Double?
+    /// v2 Sender Keys: which KDF chain iteration produced the message key.
+    /// nil → v1 shared-key message (backward compat).
+    public let senderKeyIteration:   UInt32?
+    /// Disappearing message: auto-delete at this point; nil = persistent.
+    public let expiresAt:            Date?
 
     public init(
         groupID:              String,
@@ -276,7 +294,9 @@ public struct GroupWireMessage: Codable, Sendable {
         ciphertext:           Data,
         attachmentCiphertext: Data?   = nil,
         attachmentMimeType:   String? = nil,
-        audioDuration:        Double? = nil
+        audioDuration:        Double? = nil,
+        senderKeyIteration:   UInt32? = nil,
+        expiresAt:            Date?   = nil
     ) {
         self.groupID              = groupID
         self.messageID            = messageID
@@ -287,6 +307,8 @@ public struct GroupWireMessage: Codable, Sendable {
         self.attachmentCiphertext = attachmentCiphertext
         self.attachmentMimeType   = attachmentMimeType
         self.audioDuration        = audioDuration
+        self.senderKeyIteration   = senderKeyIteration
+        self.expiresAt            = expiresAt
     }
 }
 
