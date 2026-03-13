@@ -32,6 +32,11 @@ targets:
         CODE_SIGN_ENTITLEMENTS: SophaxChat/SophaxChat.entitlements
         # Prevent screenshots from leaking sensitive content
         UIApplicationSceneManifest: ""
+        # macOS Catalyst
+        SUPPORTS_MAC_CATALYST: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
     info:
       path: SophaxChat/Info.plist
       properties:
@@ -48,8 +53,6 @@ targets:
         UIBackgroundModes:
           - bluetooth-central
           - bluetooth-peripheral
-        UIRequiredDeviceCapabilities:
-          - bluetooth-le
 
   SophaxChatCore:
     type: framework
@@ -62,6 +65,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sophax.SophaxChatCore
         DEFINES_MODULE: YES
         GENERATE_INFOPLIST_FILE: YES
+        SUPPORTS_MAC_CATALYST: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
 
   SophaxChatCoreTests:
     type: bundle.unit-test

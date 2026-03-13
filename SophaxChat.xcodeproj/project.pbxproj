@@ -7,15 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0895EDAFCC01431DB26D0BA2 /* AppLockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868AAEDE9939D03497332FF5 /* AppLockView.swift */; };
 		154BBD49AF9BD968DD0283A9 /* PreKeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A09C7E02CF9D89FE6C13A950 /* PreKeyManager.swift */; };
 		15AD3EDBE8A5024082651AD4 /* NetworkProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B5D82448CAE0D1840C78A0F /* NetworkProtocol.swift */; };
 		160720F5127BBEA852C693FD /* ChatManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D46CE11ABBA6438139570E /* ChatManager.swift */; };
 		18B230F530BED75A789D59A8 /* SophaxChatCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		21B0477D3A2F2549FFC67283 /* CameraPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD39FB7881F54A1D3378751 /* CameraPickerView.swift */; };
 		225206DA8D5D4254A65C6DBA /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1F03561696A98CB3B93AAC /* OnboardingView.swift */; };
 		31BDAAE10E0E4AB0A74C1242 /* IdentityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB34CEE37C7867B6C1F3BF2 /* IdentityManager.swift */; };
 		33C82A4E9460186A11E4035E /* DoubleRatchet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA9CCE7BA81156A8562115CF /* DoubleRatchet.swift */; };
 		40D1C2A61A964521AD18EFD2 /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 221C33EDFE4F1C6608A3A045 /* MessageBubbleView.swift */; };
+		43474D63994CCF9C9FF81C52 /* CreateGroupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D37B8E2548D1989382A0DB /* CreateGroupView.swift */; };
 		43F175EFBA8EEAB3778799D1 /* SophaxChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE9B13C28C028ED49E4EE61 /* SophaxChatApp.swift */; };
+		47611816B8B0F74904D0B944 /* AudioMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B51EB1828A0F7348D12F0DF /* AudioMessageView.swift */; };
 		66842F5D3D1D446A626C5A90 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15E58FFFBE857C470B5FB04F /* AppState.swift */; };
 		6CD4902882B05FBCD2AA1E94 /* RelayRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF7C91E26A2BB3D875DD506 /* RelayRouter.swift */; };
 		77535E232F8EF1DF4001A4EA /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 779F777A1C5E15F42CFE2E42 /* MessageStore.swift */; };
@@ -24,12 +28,18 @@
 		8C071146C7CE5EFE8412C0FA /* SophaxChatCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */; };
 		994D2492C3F26FF43C4FE69B /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A63E812A5B4C3520C5DB66 /* KeychainManager.swift */; };
 		A7A1DD6DB8E75EE013167473 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59CF7375C9846B878662FB02 /* ChatView.swift */; };
+		B15177D16C677E750060C0E9 /* GroupTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B29474AA6023C1A083279DC /* GroupTypes.swift */; };
+		B23495CBC9CC3F4859D55731 /* VoiceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BAC2F7F38467942CDAB3ED6 /* VoiceRecorder.swift */; };
 		B4CC406ECAE1258BD5A4BFD6 /* SophaxChatCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */; };
 		B6D3727A5878192A7ED89BAD /* MeshManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C9498CFAE4DAEC9C6FF086C /* MeshManager.swift */; };
 		BB494547A00FF73DF48BB126 /* X3DH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56028505B9B7E422FA2A0224 /* X3DH.swift */; };
 		C68FC08725156B75431C54E4 /* CryptoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AA1BC487BE80E0FFC5335D /* CryptoTests.swift */; };
+		C9C0037C23DF81ABBA2CE2BA /* AttachmentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0122A8E19F72D3E3BBF39DA /* AttachmentStore.swift */; };
 		CDE85E6620CF588CEFB2CB77 /* SophaxChatCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		CFF6E4009BF166FA703B66EB /* FullScreenImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6873FFCDF0C0F0BF98125F26 /* FullScreenImageView.swift */; };
 		D331FC9F0F4E22AC8AF01142 /* CryptoTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C820E10E9668787E4A69472A /* CryptoTypes.swift */; };
+		DE6391BAE49EA012718A056B /* GroupChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1ECC64BA74FB7E6A5B7B4D4 /* GroupChatView.swift */; };
+		DFBE3B2E6FEF278B921B6B35 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5647D3B76AD67EBE0DE3FE8 /* SettingsView.swift */; };
 		F93FB6401D7C369013B74345 /* RelayRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 324A26FFC78A501B8E5613BF /* RelayRouterTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -77,10 +87,14 @@
 
 /* Begin PBXFileReference section */
 		1120A019736F1D00D9352C57 /* SophaxChatCoreTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SophaxChatCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		11D37B8E2548D1989382A0DB /* CreateGroupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateGroupView.swift; sourceTree = "<group>"; };
 		15E58FFFBE857C470B5FB04F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		17A7645A40C984662D9200E8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		221C33EDFE4F1C6608A3A045 /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
+		2B51EB1828A0F7348D12F0DF /* AudioMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMessageView.swift; sourceTree = "<group>"; };
 		324A26FFC78A501B8E5613BF /* RelayRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayRouterTests.swift; sourceTree = "<group>"; };
+		3B29474AA6023C1A083279DC /* GroupTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupTypes.swift; sourceTree = "<group>"; };
+		3BAC2F7F38467942CDAB3ED6 /* VoiceRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecorder.swift; sourceTree = "<group>"; };
 		3F1F03561696A98CB3B93AAC /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		3FF7C91E26A2BB3D875DD506 /* RelayRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayRouter.swift; sourceTree = "<group>"; };
 		56028505B9B7E422FA2A0224 /* X3DH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = X3DH.swift; sourceTree = "<group>"; };
@@ -88,18 +102,24 @@
 		59CF7375C9846B878662FB02 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		5B5D82448CAE0D1840C78A0F /* NetworkProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkProtocol.swift; sourceTree = "<group>"; };
 		5C9498CFAE4DAEC9C6FF086C /* MeshManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshManager.swift; sourceTree = "<group>"; };
+		6873FFCDF0C0F0BF98125F26 /* FullScreenImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullScreenImageView.swift; sourceTree = "<group>"; };
 		6CB34CEE37C7867B6C1F3BF2 /* IdentityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityManager.swift; sourceTree = "<group>"; };
 		779F777A1C5E15F42CFE2E42 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
 		815D1C200DF5C7B88897F497 /* ChatListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListView.swift; sourceTree = "<group>"; };
 		81D46CE11ABBA6438139570E /* ChatManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatManager.swift; sourceTree = "<group>"; };
+		868AAEDE9939D03497332FF5 /* AppLockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLockView.swift; sourceTree = "<group>"; };
 		91AA1BC487BE80E0FFC5335D /* CryptoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoTests.swift; sourceTree = "<group>"; };
 		A09C7E02CF9D89FE6C13A950 /* PreKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreKeyManager.swift; sourceTree = "<group>"; };
+		ABD39FB7881F54A1D3378751 /* CameraPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPickerView.swift; sourceTree = "<group>"; };
 		BFE9B13C28C028ED49E4EE61 /* SophaxChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SophaxChatApp.swift; sourceTree = "<group>"; };
+		C1ECC64BA74FB7E6A5B7B4D4 /* GroupChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatView.swift; sourceTree = "<group>"; };
 		C820E10E9668787E4A69472A /* CryptoTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoTypes.swift; sourceTree = "<group>"; };
 		CA9CCE7BA81156A8562115CF /* DoubleRatchet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubleRatchet.swift; sourceTree = "<group>"; };
 		D6AA224B2DAE6F1832309166 /* SophaxChat.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SophaxChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9BFDABE7886E3AED296B2D7 /* IdentityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityView.swift; sourceTree = "<group>"; };
+		E5647D3B76AD67EBE0DE3FE8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		EDD82DF676B380323CA8CC3C /* SophaxChat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SophaxChat.entitlements; sourceTree = "<group>"; };
+		F0122A8E19F72D3E3BBF39DA /* AttachmentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStore.swift; sourceTree = "<group>"; };
 		F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = SophaxChatCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -126,6 +146,7 @@
 		13634BD809319BC6A3C91256 /* Storage */ = {
 			isa = PBXGroup;
 			children = (
+				F0122A8E19F72D3E3BBF39DA /* AttachmentStore.swift */,
 				779F777A1C5E15F42CFE2E42 /* MessageStore.swift */,
 			);
 			path = Storage;
@@ -136,6 +157,7 @@
 			children = (
 				81D46CE11ABBA6438139570E /* ChatManager.swift */,
 				E8C4D2202D1FD822145F631B /* Crypto */,
+				A442C67D85671CEFEC7AC29E /* Group */,
 				A94CF379E57121F1A178F611 /* Network */,
 				13634BD809319BC6A3C91256 /* Storage */,
 			);
@@ -190,12 +212,26 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		A442C67D85671CEFEC7AC29E /* Group */ = {
+			isa = PBXGroup;
+			children = (
+				3B29474AA6023C1A083279DC /* GroupTypes.swift */,
+			);
+			path = Group;
+			sourceTree = "<group>";
+		};
 		A4462078884EE3A3F0E05F75 /* Chat */ = {
 			isa = PBXGroup;
 			children = (
+				2B51EB1828A0F7348D12F0DF /* AudioMessageView.swift */,
+				ABD39FB7881F54A1D3378751 /* CameraPickerView.swift */,
 				815D1C200DF5C7B88897F497 /* ChatListView.swift */,
 				59CF7375C9846B878662FB02 /* ChatView.swift */,
+				11D37B8E2548D1989382A0DB /* CreateGroupView.swift */,
+				6873FFCDF0C0F0BF98125F26 /* FullScreenImageView.swift */,
+				C1ECC64BA74FB7E6A5B7B4D4 /* GroupChatView.swift */,
 				221C33EDFE4F1C6608A3A045 /* MessageBubbleView.swift */,
+				3BAC2F7F38467942CDAB3ED6 /* VoiceRecorder.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -234,7 +270,9 @@
 		E0D16097E865BC78BF8A086D /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				868AAEDE9939D03497332FF5 /* AppLockView.swift */,
 				D9BFDABE7886E3AED296B2D7 /* IdentityView.swift */,
+				E5647D3B76AD67EBE0DE3FE8 /* SettingsView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -358,13 +396,21 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0895EDAFCC01431DB26D0BA2 /* AppLockView.swift in Sources */,
 				66842F5D3D1D446A626C5A90 /* AppState.swift in Sources */,
+				47611816B8B0F74904D0B944 /* AudioMessageView.swift in Sources */,
+				21B0477D3A2F2549FFC67283 /* CameraPickerView.swift in Sources */,
 				7ABCC331FE480FCE2E7E466F /* ChatListView.swift in Sources */,
 				A7A1DD6DB8E75EE013167473 /* ChatView.swift in Sources */,
+				43474D63994CCF9C9FF81C52 /* CreateGroupView.swift in Sources */,
+				CFF6E4009BF166FA703B66EB /* FullScreenImageView.swift in Sources */,
+				DE6391BAE49EA012718A056B /* GroupChatView.swift in Sources */,
 				8B714B53723275155406EF28 /* IdentityView.swift in Sources */,
 				40D1C2A61A964521AD18EFD2 /* MessageBubbleView.swift in Sources */,
 				225206DA8D5D4254A65C6DBA /* OnboardingView.swift in Sources */,
+				DFBE3B2E6FEF278B921B6B35 /* SettingsView.swift in Sources */,
 				43F175EFBA8EEAB3778799D1 /* SophaxChatApp.swift in Sources */,
+				B23495CBC9CC3F4859D55731 /* VoiceRecorder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -372,9 +418,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C9C0037C23DF81ABBA2CE2BA /* AttachmentStore.swift in Sources */,
 				160720F5127BBEA852C693FD /* ChatManager.swift in Sources */,
 				D331FC9F0F4E22AC8AF01142 /* CryptoTypes.swift in Sources */,
 				33C82A4E9460186A11E4035E /* DoubleRatchet.swift in Sources */,
+				B15177D16C677E750060C0E9 /* GroupTypes.swift in Sources */,
 				31BDAAE10E0E4AB0A74C1242 /* IdentityManager.swift in Sources */,
 				994D2492C3F26FF43C4FE69B /* KeychainManager.swift in Sources */,
 				B6D3727A5878192A7ED89BAD /* MeshManager.swift in Sources */,
@@ -418,9 +466,11 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sophax.SophaxChatCore;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
+				SUPPORTS_MAC_CATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
@@ -514,14 +564,17 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SophaxChat/SophaxChat.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				INFOPLIST_FILE = SophaxChat/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sophax.SophaxChat;
 				SDKROOT = iphoneos;
+				SUPPORTS_MAC_CATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				UIApplicationSceneManifest = "";
 			};
@@ -533,14 +586,17 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SophaxChat/SophaxChat.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				INFOPLIST_FILE = SophaxChat/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sophax.SophaxChat;
 				SDKROOT = iphoneos;
+				SUPPORTS_MAC_CATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				UIApplicationSceneManifest = "";
 			};
@@ -638,9 +694,11 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sophax.SophaxChatCore;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
+				SUPPORTS_MAC_CATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
 			};

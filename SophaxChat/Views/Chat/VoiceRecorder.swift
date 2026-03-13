@@ -36,10 +36,12 @@ final class VoiceRecorder: NSObject, ObservableObject {
         ]
 
         do {
+            #if !targetEnvironment(macCatalyst)
             try AVAudioSession.sharedInstance().setCategory(.playAndRecord,
                                                              mode: .default,
                                                              options: [.defaultToSpeaker, .allowBluetooth])
             try AVAudioSession.sharedInstance().setActive(true)
+            #endif
             recorder = try AVAudioRecorder(url: url, settings: settings)
             recorder?.delegate = self
             recorder?.record()
@@ -77,7 +79,9 @@ final class VoiceRecorder: NSObject, ObservableObject {
             storedDuration = 0
             tempURL     = nil
             completion  = nil
+            #if !targetEnvironment(macCatalyst)
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            #endif
         }
 
         guard let url = tempURL, let cb = completion else { return }
