@@ -193,8 +193,8 @@ public final class MessageStore: @unchecked Sendable {
     // MARK: - Private: File URL
 
     private func fileURL(for peerID: String) -> URL {
-        // Sanitize peerID to only alphanumeric + hyphen for safe filenames
-        let safeID = peerID.filter { $0.isHexDigit || $0 == "-" }
+        // Allow alphanumeric, hyphens, and dots (for "group." prefix)
+        let safeID = peerID.filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "." }
         return baseURL.appendingPathComponent("\(safeID).enc")
     }
 }

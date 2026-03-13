@@ -133,12 +133,7 @@ final class AppState: ObservableObject {
         guard let data  = UserDefaults.standard.data(forKey: groupsDefaultsKey),
               let saved = try? JSONDecoder().decode([GroupInfo].self, from: data) else { return }
         groups = saved
-        // Pre-populate messages dict from store
-        for group in groups {
-            if let msgs = try? chatManager?.messageStore.messages(forPeer: group.conversationID) {
-                messages[group.conversationID] = msgs
-            }
-        }
+        // Group messages are loaded later in loadExistingMessages(from:) once the store is ready
     }
 
     private func saveGroups() {
