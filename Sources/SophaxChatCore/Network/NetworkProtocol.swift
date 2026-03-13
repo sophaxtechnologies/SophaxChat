@@ -89,6 +89,8 @@ public enum WireMessageType: String, Codable, Sendable {
     case sealed
     /// Read receipt — tells the sender that we have read their messages.
     case readReceipt
+    /// Emoji reaction on a specific message.
+    case reaction
 }
 
 // MARK: - Hello (Handshake)
@@ -238,6 +240,22 @@ public struct ReadReceiptMessage: Codable, Sendable {
     }
 }
 
+// MARK: - Reaction
+
+/// Sent when a peer reacts to (or removes a reaction from) one of your messages.
+/// `emoji` is nil to remove a previously set reaction.
+public struct ReactionMessage: Codable, Sendable {
+    /// ID of the message being reacted to.
+    public let targetMessageID: String
+    /// The emoji string, or nil to clear the reaction.
+    public let emoji: String?
+
+    public init(targetMessageID: String, emoji: String?) {
+        self.targetMessageID = targetMessageID
+        self.emoji           = emoji
+    }
+}
+
 // MARK: - Sealed Sender
 
 /// Wraps a WireMessage so that relay nodes cannot see the inner message type or payload.
@@ -325,6 +343,9 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
     public let attachmentMimeType: String?
     /// Audio duration in seconds (nil for non-audio).
     public let audioDuration:      Double?
+    /// Emoji reactions on this message, keyed by peerID. nil = no reactions.
+    /// Declared optional for backward-compatibility (old stored messages lack this key).
+    public var reactions:          [String: String]?
 
     public enum Direction: String, Codable, Sendable {
         case sent, received
@@ -346,7 +367,8 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
         hopCount:           UInt8?          = nil,
         attachmentID:       String?         = nil,
         attachmentMimeType: String?         = nil,
-        audioDuration:      Double?         = nil
+        audioDuration:      Double?         = nil,
+        reactions:          [String: String]? = nil
     ) {
         self.id                 = id
         self.peerID             = peerID
@@ -360,6 +382,7 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
         self.attachmentID       = attachmentID
         self.attachmentMimeType = attachmentMimeType
         self.audioDuration      = audioDuration
+        self.reactions          = reactions
     }
 }
 

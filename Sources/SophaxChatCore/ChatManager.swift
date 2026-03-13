@@ -82,6 +82,8 @@ public protocol ChatManagerDelegate: AnyObject {
     func chatManager(_ manager: ChatManager, peerDidUpdateTyping peerID: String, isTyping: Bool)
     /// The remote peer has read one or more messages we sent.
     func chatManager(_ manager: ChatManager, messagesRead messageIDs: [String], byPeer peerID: String)
+    /// A peer updated their emoji reaction on a specific message.
+    func chatManager(_ manager: ChatManager, didUpdateReactions reactions: [String: String], onMessageID messageID: String, peerID: String)
 }
 
 // MARK: - ChatManager
@@ -239,6 +241,14 @@ public final class ChatManager: @unchecked Sendable {
         guard !messageIDs.isEmpty else { return }
         let payload = ReadReceiptMessage(messageIDs: messageIDs)
         guard let wire = try? wireBuilder.build(.readReceipt, payload: payload) else { return }
+        try? sendOrQueue(wire, toPeerID: peerID, messageID: UUID().uuidString)
+    }
+
+    /// Send an emoji reaction (or remove one) on a specific message.
+    /// `emoji` = nil removes any existing reaction from the local user.
+    public func sendReaction(emoji: String?, toMessageID messageID: String, toPeerID peerID: String) {
+        let payload = ReactionMessage(targetMessageID: messageID, emoji: emoji)
+        guard let wire = try? wireBuilder.build(.reaction, payload: payload) else { return }
         try? sendOrQueue(wire, toPeerID: peerID, messageID: UUID().uuidString)
     }
 
@@ -662,6 +672,28 @@ public final class ChatManager: @unchecked Sendable {
         }
     }
 
+    private func handleReaction(_ payload: ReactionMessage, fromPeer peerID: String) {
+        // Determine which conversation owns the target message.
+        // For sent messages the peerID is the conversation partner; reactions come from that peer.
+        // For received messages the peerID is also the conversation partner.
+        let convID = peerID
+        guard let msgs = try? messageStore.messages(forPeer: convID),
+              let idx = msgs.firstIndex(where: { $0.id == payload.targetMessageID }) else { return }
+        var reactions = msgs[idx].reactions ?? [:]
+        if let emoji = payload.emoji {
+            reactions[peerID] = emoji
+        } else {
+            reactions.removeValue(forKey: peerID)
+        }
+        try? messageStore.updateReactions(reactions, forMessageID: payload.targetMessageID, peerID: convID)
+        let messageID  = payload.targetMessageID
+        let finalReactions = reactions
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didUpdateReactions: finalReactions, onMessageID: messageID, peerID: convID)
+        }
+    }
+
     /// Handle a RelayEnvelope arriving from a directly-connected peer.
     private func handleRelay(_ envelope: RelayEnvelope, fromRelayPeer relayPeerID: String) throws {
         let myPeerID = identity.publicIdentity.peerID
@@ -726,6 +758,10 @@ public final class ChatManager: @unchecked Sendable {
         case .readReceipt:
             let payload = try wireBuilder.decodePayload(ReadReceiptMessage.self, from: message)
             handleReadReceipt(payload, fromPeer: message.senderID)
+
+        case .reaction:
+            let payload = try wireBuilder.decodePayload(ReactionMessage.self, from: message)
+            handleReaction(payload, fromPeer: message.senderID)
 
         case .sealed:
             let sealed = try wireBuilder.decodePayload(SealedMessage.self, from: message)
@@ -864,6 +900,10 @@ extension ChatManager: MeshManagerDelegate {
             case .readReceipt:
                 let payload = try wireBuilder.decodePayload(ReadReceiptMessage.self, from: message)
                 handleReadReceipt(payload, fromPeer: message.senderID)
+
+            case .reaction:
+                let payload = try wireBuilder.decodePayload(ReactionMessage.self, from: message)
+                handleReaction(payload, fromPeer: message.senderID)
 
             case .relay:
                 let envelope = try wireBuilder.decodePayload(RelayEnvelope.self, from: message)

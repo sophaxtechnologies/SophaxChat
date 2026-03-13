@@ -96,6 +96,10 @@ final class AppState: ObservableObject {
         chatManager?.sendTypingIndicator(toPeerID: peerID, isTyping: isTyping)
     }
 
+    func sendReaction(emoji: String?, messageID: String, peerID: String) {
+        chatManager?.sendReaction(emoji: emoji, toMessageID: messageID, toPeerID: peerID)
+    }
+
     /// Compress `image` to JPEG under 400 KB and send as an encrypted attachment.
     func sendImage(_ image: UIImage, toPeerID peerID: String, expiresAt: Date? = nil) {
         var quality: CGFloat = 0.75
@@ -378,6 +382,12 @@ extension AppState: ChatManagerDelegate {
             if let idx = messages[peerID]?.firstIndex(where: { $0.id == messageID }) {
                 messages[peerID]?[idx].status = .read
             }
+        }
+    }
+
+    func chatManager(_ manager: ChatManager, didUpdateReactions reactions: [String: String], onMessageID messageID: String, peerID: String) {
+        if let idx = messages[peerID]?.firstIndex(where: { $0.id == messageID }) {
+            messages[peerID]?[idx].reactions = reactions.isEmpty ? nil : reactions
         }
     }
 

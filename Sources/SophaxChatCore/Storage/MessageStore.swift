@@ -77,6 +77,15 @@ public final class MessageStore: @unchecked Sendable {
         try saveToDisk(messages: messages, peerID: message.peerID)
     }
 
+    /// Update the emoji reactions map for a specific message.
+    public func updateReactions(_ reactions: [String: String], forMessageID messageID: String, peerID: String) throws {
+        var messages = (try? self.messages(forPeer: peerID)) ?? []
+        guard let idx = messages.firstIndex(where: { $0.id == messageID }) else { return }
+        messages[idx].reactions = reactions.isEmpty ? nil : reactions
+        cache[peerID] = messages
+        try saveToDisk(messages: messages, peerID: peerID)
+    }
+
     /// Update message status (sent → delivered, sending → failed, etc.).
     public func updateStatus(_ status: StoredMessage.MessageStatus, forMessageID messageID: String, peerID: String) throws {
         var messages = (try? self.messages(forPeer: peerID)) ?? []

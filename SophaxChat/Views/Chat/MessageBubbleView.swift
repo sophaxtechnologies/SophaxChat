@@ -8,6 +8,9 @@ import SwiftUI
 import UIKit
 import SophaxChatCore
 
+// Common emoji reactions
+private let reactionEmojis = ["👍", "❤️", "😂", "😮", "😢", "👎"]
+
 struct MessageBubbleView: View {
     @EnvironmentObject var appState: AppState
 
@@ -41,6 +44,27 @@ struct MessageBubbleView: View {
                 // ── Main content ──────────────────────────────────────────────
                 contentBubble
                     .contextMenu {
+                        // Emoji reactions
+                        Menu {
+                            ForEach(reactionEmojis, id: \.self) { emoji in
+                                Button {
+                                    let myID = appState.chatManager?.identity.publicIdentity.peerID ?? ""
+                                    let existing = message.reactions?[myID]
+                                    appState.sendReaction(
+                                        emoji: existing == emoji ? nil : emoji,
+                                        messageID: message.id,
+                                        peerID: message.peerID
+                                    )
+                                } label: {
+                                    let myID = appState.chatManager?.identity.publicIdentity.peerID ?? ""
+                                    let isActive = message.reactions?[myID] == emoji
+                                    Text(isActive ? "\(emoji) ✓" : emoji)
+                                }
+                            }
+                        } label: {
+                            Label("React", systemImage: "face.smiling")
+                        }
+                        Divider()
                         if let onReply {
                             Button(action: onReply) {
                                 Label("Reply", systemImage: "arrowshape.turn.up.left")
@@ -64,6 +88,11 @@ struct MessageBubbleView: View {
                             }
                         }
                     }
+
+                // ── Reaction pills ────────────────────────────────────────────
+                if let reactions = message.reactions, !reactions.isEmpty {
+                    reactionPillsView(reactions: reactions)
+                }
 
                 // ── Timestamp + relay hop + status ────────────────────────────
                 HStack(spacing: 4) {
@@ -123,6 +152,43 @@ struct MessageBubbleView: View {
         .padding(.vertical, 6)
         .background(isSent ? Color.white.opacity(0.15) : Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    // MARK: - Reaction pills
+
+    @ViewBuilder
+    private func reactionPillsView(reactions: [String: String]) -> some View {
+        let myID    = appState.chatManager?.identity.publicIdentity.peerID ?? ""
+        // Group by emoji, count each
+        let grouped = Dictionary(grouping: reactions.values, by: { $0 })
+        let sorted  = grouped.sorted { $0.value.count > $1.value.count }
+
+        HStack(spacing: 4) {
+            ForEach(sorted, id: \.key) { emoji, peers in
+                let isMine = reactions[myID] == emoji
+                HStack(spacing: 2) {
+                    Text(emoji)
+                        .font(.caption)
+                    if peers.count > 1 {
+                        Text("\(peers.count)")
+                            .font(.caption2.bold())
+                            .foregroundStyle(isMine ? .white : .primary)
+                    }
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(isMine ? Color.accentColor : Color(.systemGray5))
+                .clipShape(Capsule())
+                .onTapGesture {
+                    // Toggle: tap your own reaction to remove it
+                    appState.sendReaction(
+                        emoji: isMine ? nil : emoji,
+                        messageID: message.id,
+                        peerID: message.peerID
+                    )
+                }
+            }
+        }
     }
 
     // MARK: - Content bubble
