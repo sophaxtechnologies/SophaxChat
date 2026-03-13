@@ -112,6 +112,32 @@ final class AppState: ObservableObject {
         chatManager?.sendGroupMessage(text, groupID: group.id, members: group.memberIDs)
     }
 
+    func sendGroupImage(_ image: UIImage, group: GroupInfo) {
+        var quality: CGFloat = 0.75
+        var jpegData: Data? = image.jpegData(compressionQuality: quality)
+        while let d = jpegData, d.count > 400_000, quality > 0.1 {
+            quality -= 0.1
+            jpegData = image.jpegData(compressionQuality: quality)
+        }
+        guard let data = jpegData else { return }
+        chatManager?.sendGroupAttachment(data, mimeType: "image/jpeg",
+                                         groupID: group.id, members: group.memberIDs)
+    }
+
+    func sendGroupAudio(_ data: Data, duration: Double, group: GroupInfo) {
+        chatManager?.sendGroupAttachment(data, mimeType: "audio/m4a",
+                                         audioDuration: duration,
+                                         groupID: group.id, members: group.memberIDs)
+    }
+
+    func leaveGroup(_ group: GroupInfo) {
+        chatManager?.leaveGroup(group)
+        groups.removeAll { $0.id == group.id }
+        saveGroups()
+        messages.removeValue(forKey: group.conversationID)
+        unreadCounts.removeValue(forKey: group.conversationID)
+    }
+
     func groupMessages(for group: GroupInfo) -> [StoredMessage] {
         messages[group.conversationID] ?? []
     }
@@ -244,10 +270,26 @@ final class AppState: ObservableObject {
     private func scheduleNotification(for message: StoredMessage, fromPeer peerID: String) {
         let content  = UNMutableNotificationContent()
         let peerName = peers.first(where: { $0.id == peerID }).map { displayName(for: $0) } ?? "New message"
-        content.title           = peerName
-        content.body            = message.body
-        content.sound           = .default
-        content.threadIdentifier = peerID           // group notifications by conversation
+        content.title              = peerName
+        content.body               = message.body
+        content.sound              = .default
+        content.threadIdentifier   = peerID
+        content.categoryIdentifier = "SOPHAX_MSG"
+        let request = UNNotificationRequest(identifier: message.id, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    private func scheduleGroupNotification(for message: StoredMessage, groupID: String) {
+        guard let group = groups.first(where: { $0.id == groupID }) else { return }
+        let senderName = message.senderID.flatMap { sid in
+            peers.first(where: { $0.id == sid }).map { displayName(for: $0) }
+        } ?? "Someone"
+        let content  = UNMutableNotificationContent()
+        content.title              = group.name
+        content.subtitle           = senderName
+        content.body               = message.body
+        content.sound              = .default
+        content.threadIdentifier   = group.conversationID
         content.categoryIdentifier = "SOPHAX_MSG"
         let request = UNNotificationRequest(identifier: message.id, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
@@ -469,6 +511,10 @@ extension AppState: ChatManagerDelegate {
         unreadCounts[convID, default: 0] += message.direction == .received ? 1 : 0
         if message.direction == .received {
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            let appStatus = UIApplication.shared.applicationState
+            if appStatus == .background || appStatus == .inactive {
+                scheduleGroupNotification(for: message, groupID: groupID)
+            }
         }
     }
 

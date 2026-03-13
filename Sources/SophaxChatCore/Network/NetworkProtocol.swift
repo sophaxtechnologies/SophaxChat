@@ -253,28 +253,40 @@ public struct ReadReceiptMessage: Codable, Sendable {
 /// Wire message for a group chat message, encrypted with the group symmetric key.
 /// Sent individually to each group member (via direct/relay/queue routing).
 public struct GroupWireMessage: Codable, Sendable {
-    public let groupID:        String
-    public let messageID:      String
-    public let senderPeerID:   String
-    public let senderUsername: String
-    public let timestamp:      Date
+    public let groupID:              String
+    public let messageID:            String
+    public let senderPeerID:         String
+    public let senderUsername:       String
+    public let timestamp:            Date
     /// ChaChaPoly.combined = nonce(12 B) + body ciphertext + tag(16 B)
-    public let ciphertext:     Data
+    public let ciphertext:           Data
+    /// ChaChaPoly.combined for the binary attachment (nil = text-only message).
+    public let attachmentCiphertext: Data?
+    /// "image/jpeg" | "audio/m4a" — nil when no attachment.
+    public let attachmentMimeType:   String?
+    /// Audio duration in seconds (nil for non-audio).
+    public let audioDuration:        Double?
 
     public init(
-        groupID:        String,
-        messageID:      String,
-        senderPeerID:   String,
-        senderUsername: String,
-        timestamp:      Date,
-        ciphertext:     Data
+        groupID:              String,
+        messageID:            String,
+        senderPeerID:         String,
+        senderUsername:       String,
+        timestamp:            Date,
+        ciphertext:           Data,
+        attachmentCiphertext: Data?   = nil,
+        attachmentMimeType:   String? = nil,
+        audioDuration:        Double? = nil
     ) {
-        self.groupID        = groupID
-        self.messageID      = messageID
-        self.senderPeerID   = senderPeerID
-        self.senderUsername = senderUsername
-        self.timestamp      = timestamp
-        self.ciphertext     = ciphertext
+        self.groupID              = groupID
+        self.messageID            = messageID
+        self.senderPeerID         = senderPeerID
+        self.senderUsername       = senderUsername
+        self.timestamp            = timestamp
+        self.ciphertext           = ciphertext
+        self.attachmentCiphertext = attachmentCiphertext
+        self.attachmentMimeType   = attachmentMimeType
+        self.audioDuration        = audioDuration
     }
 }
 

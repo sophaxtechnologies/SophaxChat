@@ -1,0 +1,691 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		154BBD49AF9BD968DD0283A9 /* PreKeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A09C7E02CF9D89FE6C13A950 /* PreKeyManager.swift */; };
+		15AD3EDBE8A5024082651AD4 /* NetworkProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B5D82448CAE0D1840C78A0F /* NetworkProtocol.swift */; };
+		160720F5127BBEA852C693FD /* ChatManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D46CE11ABBA6438139570E /* ChatManager.swift */; };
+		18B230F530BED75A789D59A8 /* SophaxChatCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		225206DA8D5D4254A65C6DBA /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1F03561696A98CB3B93AAC /* OnboardingView.swift */; };
+		31BDAAE10E0E4AB0A74C1242 /* IdentityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB34CEE37C7867B6C1F3BF2 /* IdentityManager.swift */; };
+		33C82A4E9460186A11E4035E /* DoubleRatchet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA9CCE7BA81156A8562115CF /* DoubleRatchet.swift */; };
+		40D1C2A61A964521AD18EFD2 /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 221C33EDFE4F1C6608A3A045 /* MessageBubbleView.swift */; };
+		43F175EFBA8EEAB3778799D1 /* SophaxChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE9B13C28C028ED49E4EE61 /* SophaxChatApp.swift */; };
+		66842F5D3D1D446A626C5A90 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15E58FFFBE857C470B5FB04F /* AppState.swift */; };
+		6CD4902882B05FBCD2AA1E94 /* RelayRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF7C91E26A2BB3D875DD506 /* RelayRouter.swift */; };
+		77535E232F8EF1DF4001A4EA /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 779F777A1C5E15F42CFE2E42 /* MessageStore.swift */; };
+		7ABCC331FE480FCE2E7E466F /* ChatListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 815D1C200DF5C7B88897F497 /* ChatListView.swift */; };
+		8B714B53723275155406EF28 /* IdentityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9BFDABE7886E3AED296B2D7 /* IdentityView.swift */; };
+		8C071146C7CE5EFE8412C0FA /* SophaxChatCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */; };
+		994D2492C3F26FF43C4FE69B /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A63E812A5B4C3520C5DB66 /* KeychainManager.swift */; };
+		A7A1DD6DB8E75EE013167473 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59CF7375C9846B878662FB02 /* ChatView.swift */; };
+		B4CC406ECAE1258BD5A4BFD6 /* SophaxChatCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */; };
+		B6D3727A5878192A7ED89BAD /* MeshManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C9498CFAE4DAEC9C6FF086C /* MeshManager.swift */; };
+		BB494547A00FF73DF48BB126 /* X3DH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56028505B9B7E422FA2A0224 /* X3DH.swift */; };
+		C68FC08725156B75431C54E4 /* CryptoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AA1BC487BE80E0FFC5335D /* CryptoTests.swift */; };
+		CDE85E6620CF588CEFB2CB77 /* SophaxChatCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		D331FC9F0F4E22AC8AF01142 /* CryptoTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C820E10E9668787E4A69472A /* CryptoTypes.swift */; };
+		F93FB6401D7C369013B74345 /* RelayRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 324A26FFC78A501B8E5613BF /* RelayRouterTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		873D97BDD40733DE5AA81AF6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5B780B3DAB971E28E6898FAD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3995D1202A013492C3898D6D;
+			remoteInfo = SophaxChatCore;
+		};
+		B78FBCDD73DF5F150E3985A9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5B780B3DAB971E28E6898FAD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3995D1202A013492C3898D6D;
+			remoteInfo = SophaxChatCore;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E1CC212EE3E057C25CC5DC5C /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				18B230F530BED75A789D59A8 /* SophaxChatCore.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ECEFE85E03095086E351C094 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				CDE85E6620CF588CEFB2CB77 /* SophaxChatCore.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		1120A019736F1D00D9352C57 /* SophaxChatCoreTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SophaxChatCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		15E58FFFBE857C470B5FB04F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		17A7645A40C984662D9200E8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		221C33EDFE4F1C6608A3A045 /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
+		324A26FFC78A501B8E5613BF /* RelayRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayRouterTests.swift; sourceTree = "<group>"; };
+		3F1F03561696A98CB3B93AAC /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		3FF7C91E26A2BB3D875DD506 /* RelayRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayRouter.swift; sourceTree = "<group>"; };
+		56028505B9B7E422FA2A0224 /* X3DH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = X3DH.swift; sourceTree = "<group>"; };
+		58A63E812A5B4C3520C5DB66 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
+		59CF7375C9846B878662FB02 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		5B5D82448CAE0D1840C78A0F /* NetworkProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkProtocol.swift; sourceTree = "<group>"; };
+		5C9498CFAE4DAEC9C6FF086C /* MeshManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshManager.swift; sourceTree = "<group>"; };
+		6CB34CEE37C7867B6C1F3BF2 /* IdentityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityManager.swift; sourceTree = "<group>"; };
+		779F777A1C5E15F42CFE2E42 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
+		815D1C200DF5C7B88897F497 /* ChatListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListView.swift; sourceTree = "<group>"; };
+		81D46CE11ABBA6438139570E /* ChatManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatManager.swift; sourceTree = "<group>"; };
+		91AA1BC487BE80E0FFC5335D /* CryptoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoTests.swift; sourceTree = "<group>"; };
+		A09C7E02CF9D89FE6C13A950 /* PreKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreKeyManager.swift; sourceTree = "<group>"; };
+		BFE9B13C28C028ED49E4EE61 /* SophaxChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SophaxChatApp.swift; sourceTree = "<group>"; };
+		C820E10E9668787E4A69472A /* CryptoTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoTypes.swift; sourceTree = "<group>"; };
+		CA9CCE7BA81156A8562115CF /* DoubleRatchet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubleRatchet.swift; sourceTree = "<group>"; };
+		D6AA224B2DAE6F1832309166 /* SophaxChat.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SophaxChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D9BFDABE7886E3AED296B2D7 /* IdentityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityView.swift; sourceTree = "<group>"; };
+		EDD82DF676B380323CA8CC3C /* SophaxChat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SophaxChat.entitlements; sourceTree = "<group>"; };
+		F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = SophaxChatCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		6CFC894690010F24E1CEF532 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8C071146C7CE5EFE8412C0FA /* SophaxChatCore.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B228B30ACDACAB8D913F1A15 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B4CC406ECAE1258BD5A4BFD6 /* SophaxChatCore.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		13634BD809319BC6A3C91256 /* Storage */ = {
+			isa = PBXGroup;
+			children = (
+				779F777A1C5E15F42CFE2E42 /* MessageStore.swift */,
+			);
+			path = Storage;
+			sourceTree = "<group>";
+		};
+		29995BCD0AFDD3BAB0D19041 /* SophaxChatCore */ = {
+			isa = PBXGroup;
+			children = (
+				81D46CE11ABBA6438139570E /* ChatManager.swift */,
+				E8C4D2202D1FD822145F631B /* Crypto */,
+				A94CF379E57121F1A178F611 /* Network */,
+				13634BD809319BC6A3C91256 /* Storage */,
+			);
+			name = SophaxChatCore;
+			path = Sources/SophaxChatCore;
+			sourceTree = "<group>";
+		};
+		4BB9FBD07277B08553857599 = {
+			isa = PBXGroup;
+			children = (
+				AB737CC8E2A93A8385A18924 /* SophaxChat */,
+				29995BCD0AFDD3BAB0D19041 /* SophaxChatCore */,
+				58A8086D591993980AF29B01 /* SophaxChatCoreTests */,
+				B808D81EE882245CCF4047B6 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		541FFD0C4BCCA8514C0C8267 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				3F1F03561696A98CB3B93AAC /* OnboardingView.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		58A8086D591993980AF29B01 /* SophaxChatCoreTests */ = {
+			isa = PBXGroup;
+			children = (
+				91AA1BC487BE80E0FFC5335D /* CryptoTests.swift */,
+				324A26FFC78A501B8E5613BF /* RelayRouterTests.swift */,
+			);
+			name = SophaxChatCoreTests;
+			path = Tests/SophaxChatCoreTests;
+			sourceTree = "<group>";
+		};
+		7ABEB69C49F736800F270D81 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A4462078884EE3A3F0E05F75 /* Chat */,
+				541FFD0C4BCCA8514C0C8267 /* Onboarding */,
+				E0D16097E865BC78BF8A086D /* Settings */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		9DE5A5292FAF2B4BF196E2AC /* App */ = {
+			isa = PBXGroup;
+			children = (
+				15E58FFFBE857C470B5FB04F /* AppState.swift */,
+				BFE9B13C28C028ED49E4EE61 /* SophaxChatApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A4462078884EE3A3F0E05F75 /* Chat */ = {
+			isa = PBXGroup;
+			children = (
+				815D1C200DF5C7B88897F497 /* ChatListView.swift */,
+				59CF7375C9846B878662FB02 /* ChatView.swift */,
+				221C33EDFE4F1C6608A3A045 /* MessageBubbleView.swift */,
+			);
+			path = Chat;
+			sourceTree = "<group>";
+		};
+		A94CF379E57121F1A178F611 /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				5C9498CFAE4DAEC9C6FF086C /* MeshManager.swift */,
+				5B5D82448CAE0D1840C78A0F /* NetworkProtocol.swift */,
+				3FF7C91E26A2BB3D875DD506 /* RelayRouter.swift */,
+			);
+			path = Network;
+			sourceTree = "<group>";
+		};
+		AB737CC8E2A93A8385A18924 /* SophaxChat */ = {
+			isa = PBXGroup;
+			children = (
+				17A7645A40C984662D9200E8 /* Info.plist */,
+				EDD82DF676B380323CA8CC3C /* SophaxChat.entitlements */,
+				9DE5A5292FAF2B4BF196E2AC /* App */,
+				7ABEB69C49F736800F270D81 /* Views */,
+			);
+			path = SophaxChat;
+			sourceTree = "<group>";
+		};
+		B808D81EE882245CCF4047B6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D6AA224B2DAE6F1832309166 /* SophaxChat.app */,
+				F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */,
+				1120A019736F1D00D9352C57 /* SophaxChatCoreTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		E0D16097E865BC78BF8A086D /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				D9BFDABE7886E3AED296B2D7 /* IdentityView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		E8C4D2202D1FD822145F631B /* Crypto */ = {
+			isa = PBXGroup;
+			children = (
+				C820E10E9668787E4A69472A /* CryptoTypes.swift */,
+				CA9CCE7BA81156A8562115CF /* DoubleRatchet.swift */,
+				6CB34CEE37C7867B6C1F3BF2 /* IdentityManager.swift */,
+				58A63E812A5B4C3520C5DB66 /* KeychainManager.swift */,
+				A09C7E02CF9D89FE6C13A950 /* PreKeyManager.swift */,
+				56028505B9B7E422FA2A0224 /* X3DH.swift */,
+			);
+			path = Crypto;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3995D1202A013492C3898D6D /* SophaxChatCore */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F104D0D224B712CA2472082D /* Build configuration list for PBXNativeTarget "SophaxChatCore" */;
+			buildPhases = (
+				A864CA4DC4D5334780F33A50 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SophaxChatCore;
+			packageProductDependencies = (
+			);
+			productName = SophaxChatCore;
+			productReference = F026517E60C9F0DF6C94788E /* SophaxChatCore.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+		7F19A4E18FFE93EF266B0DB3 /* SophaxChat */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E386F35ADBD5FB628888EBED /* Build configuration list for PBXNativeTarget "SophaxChat" */;
+			buildPhases = (
+				7A87BBD48FF998612AD113F2 /* Sources */,
+				B228B30ACDACAB8D913F1A15 /* Frameworks */,
+				ECEFE85E03095086E351C094 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A5EE4895DC8D10BF3FF83A30 /* PBXTargetDependency */,
+			);
+			name = SophaxChat;
+			packageProductDependencies = (
+			);
+			productName = SophaxChat;
+			productReference = D6AA224B2DAE6F1832309166 /* SophaxChat.app */;
+			productType = "com.apple.product-type.application";
+		};
+		89E5F2E9EFFEF1D05A880188 /* SophaxChatCoreTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F5EF7271017890F9DFC9E8DF /* Build configuration list for PBXNativeTarget "SophaxChatCoreTests" */;
+			buildPhases = (
+				6DA52691B7B27DC6AE7BF7C0 /* Sources */,
+				6CFC894690010F24E1CEF532 /* Frameworks */,
+				E1CC212EE3E057C25CC5DC5C /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D207221D8702A36F70909A88 /* PBXTargetDependency */,
+			);
+			name = SophaxChatCoreTests;
+			packageProductDependencies = (
+			);
+			productName = SophaxChatCoreTests;
+			productReference = 1120A019736F1D00D9352C57 /* SophaxChatCoreTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5B780B3DAB971E28E6898FAD /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 657979BA496F9AC75B820256 /* Build configuration list for PBXProject "SophaxChat" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 4BB9FBD07277B08553857599;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B808D81EE882245CCF4047B6 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				7F19A4E18FFE93EF266B0DB3 /* SophaxChat */,
+				3995D1202A013492C3898D6D /* SophaxChatCore */,
+				89E5F2E9EFFEF1D05A880188 /* SophaxChatCoreTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6DA52691B7B27DC6AE7BF7C0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C68FC08725156B75431C54E4 /* CryptoTests.swift in Sources */,
+				F93FB6401D7C369013B74345 /* RelayRouterTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7A87BBD48FF998612AD113F2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				66842F5D3D1D446A626C5A90 /* AppState.swift in Sources */,
+				7ABCC331FE480FCE2E7E466F /* ChatListView.swift in Sources */,
+				A7A1DD6DB8E75EE013167473 /* ChatView.swift in Sources */,
+				8B714B53723275155406EF28 /* IdentityView.swift in Sources */,
+				40D1C2A61A964521AD18EFD2 /* MessageBubbleView.swift in Sources */,
+				225206DA8D5D4254A65C6DBA /* OnboardingView.swift in Sources */,
+				43F175EFBA8EEAB3778799D1 /* SophaxChatApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A864CA4DC4D5334780F33A50 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				160720F5127BBEA852C693FD /* ChatManager.swift in Sources */,
+				D331FC9F0F4E22AC8AF01142 /* CryptoTypes.swift in Sources */,
+				33C82A4E9460186A11E4035E /* DoubleRatchet.swift in Sources */,
+				31BDAAE10E0E4AB0A74C1242 /* IdentityManager.swift in Sources */,
+				994D2492C3F26FF43C4FE69B /* KeychainManager.swift in Sources */,
+				B6D3727A5878192A7ED89BAD /* MeshManager.swift in Sources */,
+				77535E232F8EF1DF4001A4EA /* MessageStore.swift in Sources */,
+				15AD3EDBE8A5024082651AD4 /* NetworkProtocol.swift in Sources */,
+				154BBD49AF9BD968DD0283A9 /* PreKeyManager.swift in Sources */,
+				6CD4902882B05FBCD2AA1E94 /* RelayRouter.swift in Sources */,
+				BB494547A00FF73DF48BB126 /* X3DH.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A5EE4895DC8D10BF3FF83A30 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3995D1202A013492C3898D6D /* SophaxChatCore */;
+			targetProxy = B78FBCDD73DF5F150E3985A9 /* PBXContainerItemProxy */;
+		};
+		D207221D8702A36F70909A88 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3995D1202A013492C3898D6D /* SophaxChatCore */;
+			targetProxy = 873D97BDD40733DE5AA81AF6 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0FBDE9E5F1D1E39D2821F257 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				GENERATE_INFOPLIST_FILE = YES;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sophax.SophaxChatCore;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		33468C5853B21E27EF68BFE6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_CONCURRENCY_CHECKING = complete;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_SWIFT_FLAGS = "-D SOPHAX_RELEASE";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		4578763F3E8051993F87235A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sophax.SophaxChatCoreTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		544902A0ECEE3F69CFA9CEEE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SophaxChat/SophaxChat.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = SophaxChat/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sophax.SophaxChat;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				UIApplicationSceneManifest = "";
+			};
+			name = Debug;
+		};
+		6B280ADE8780F62C1C60CC6D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SophaxChat/SophaxChat.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = SophaxChat/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sophax.SophaxChat;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				UIApplicationSceneManifest = "";
+			};
+			name = Release;
+		};
+		867CC789E6AF993F0CE2B3C3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sophax.SophaxChatCoreTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DE63CA82957DFAACA5E4BEA7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_CONCURRENCY_CHECKING = complete;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				OTHER_SWIFT_FLAGS = "-D SOPHAX_RELEASE";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		E51CE1721CFDC22964DAAE95 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				GENERATE_INFOPLIST_FILE = YES;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sophax.SophaxChatCore;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		657979BA496F9AC75B820256 /* Build configuration list for PBXProject "SophaxChat" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				33468C5853B21E27EF68BFE6 /* Debug */,
+				DE63CA82957DFAACA5E4BEA7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E386F35ADBD5FB628888EBED /* Build configuration list for PBXNativeTarget "SophaxChat" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				544902A0ECEE3F69CFA9CEEE /* Debug */,
+				6B280ADE8780F62C1C60CC6D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F104D0D224B712CA2472082D /* Build configuration list for PBXNativeTarget "SophaxChatCore" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0FBDE9E5F1D1E39D2821F257 /* Debug */,
+				E51CE1721CFDC22964DAAE95 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F5EF7271017890F9DFC9E8DF /* Build configuration list for PBXNativeTarget "SophaxChatCoreTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				867CC789E6AF993F0CE2B3C3 /* Debug */,
+				4578763F3E8051993F87235A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 5B780B3DAB971E28E6898FAD /* Project object */;
+}

@@ -327,10 +327,10 @@ public final class ChatManager: @unchecked Sendable {
             ciphertext:     sealed.combined
         )
 
-        // Store locally as sent
+        // Store locally as sent (mark delivered immediately — no per-member ack for group)
         let stored = StoredMessage(
             id: messageID, peerID: "group.\(groupID)",
-            direction: .sent, body: body, status: .sending,
+            direction: .sent, body: body, status: .delivered,
             senderID: myID
         )
         try? messageStore.append(message: stored)
@@ -345,6 +345,77 @@ public final class ChatManager: @unchecked Sendable {
                 try? sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
             }
         }
+    }
+
+    /// Send a binary attachment (image or audio) to all members of a group.
+    public func sendGroupAttachment(
+        _ data: Data,
+        mimeType: String,
+        caption: String = "",
+        audioDuration: Double? = nil,
+        groupID: String,
+        members: [String]
+    ) {
+        guard data.count <= Self.maxAttachmentBytes else {
+            delegate?.chatManager(self, didEncounterError:
+                SophaxError.invalidMessageFormat("Attachment exceeds 512 KB limit"))
+            return
+        }
+        guard let groupKey = try? keychain.loadGroupKey(groupID: groupID) else { return }
+
+        let myID         = identity.publicIdentity.peerID
+        let myUsername   = identity.publicIdentity.username
+        let messageID    = UUID().uuidString
+        let attachmentID = UUID().uuidString
+        let timestamp    = Date()
+        let msgType: MessageContent.MessageType = mimeType.hasPrefix("image/") ? .image : .audio
+        let displayBody  = caption.isEmpty
+            ? (msgType == .image ? "📷 Photo" : "🎤 Voice message")
+            : caption
+
+        // Save attachment locally for sender's own bubble
+        try? attachmentStore.save(data, id: attachmentID)
+
+        // Encrypt body
+        guard let bodyData    = displayBody.data(using: .utf8),
+              let sealedBody  = try? ChaChaPoly.seal(bodyData, using: groupKey),
+              let sealedAtt   = try? ChaChaPoly.seal(data,     using: groupKey) else { return }
+
+        let wireMsg = GroupWireMessage(
+            groupID:              groupID,
+            messageID:            messageID,
+            senderPeerID:         myID,
+            senderUsername:       myUsername,
+            timestamp:            timestamp,
+            ciphertext:           sealedBody.combined,
+            attachmentCiphertext: sealedAtt.combined,
+            attachmentMimeType:   mimeType,
+            audioDuration:        audioDuration
+        )
+
+        let stored = StoredMessage(
+            id: messageID, peerID: "group.\(groupID)",
+            direction: .sent, body: displayBody, status: .delivered,
+            attachmentID: attachmentID, attachmentMimeType: mimeType,
+            audioDuration: audioDuration, senderID: myID
+        )
+        try? messageStore.append(message: stored)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didReceiveGroupMessage: stored, inGroup: groupID)
+        }
+
+        for peerID in members where peerID != myID {
+            if let wire = try? wireBuilder.build(.groupMessage, payload: wireMsg) {
+                try? sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
+            }
+        }
+    }
+
+    /// Remove the local user from a group: delete the group key and stored messages.
+    public func leaveGroup(_ group: GroupInfo) {
+        keychain.deleteGroupKey(groupID: group.id)
+        try? messageStore.deleteConversation(peerID: group.conversationID)
     }
 
     /// Send a binary attachment (image or audio) to `peerID`.
@@ -837,15 +908,29 @@ public final class ChatManager: @unchecked Sendable {
               let bodyData  = try? ChaChaPoly.open(sealedBox, using: groupKey),
               let body      = String(data: bodyData, encoding: .utf8) else { return }
 
+        // Decrypt attachment if present
+        var attachmentID: String? = nil
+        if let attCiphertext = payload.attachmentCiphertext,
+           payload.attachmentMimeType != nil,
+           let sealedAtt = try? ChaChaPoly.SealedBox(combined: attCiphertext),
+           let attData   = try? ChaChaPoly.open(sealedAtt, using: groupKey) {
+            let id = UUID().uuidString
+            try? attachmentStore.save(attData, id: id)
+            attachmentID = id
+        }
+
         let convID = "group.\(payload.groupID)"
         let stored = StoredMessage(
-            id:        payload.messageID,
-            peerID:    convID,
-            direction: .received,
-            body:      body,
-            timestamp: payload.timestamp,
-            status:    .delivered,
-            senderID:  payload.senderPeerID
+            id:                 payload.messageID,
+            peerID:             convID,
+            direction:          .received,
+            body:               body,
+            timestamp:          payload.timestamp,
+            status:             .delivered,
+            attachmentID:       attachmentID,
+            attachmentMimeType: payload.attachmentMimeType,
+            audioDuration:      payload.audioDuration,
+            senderID:           payload.senderPeerID
         )
         try? messageStore.append(message: stored)
         let groupID = payload.groupID
