@@ -11,9 +11,10 @@ import SophaxChatCore
 struct MessageBubbleView: View {
     @EnvironmentObject var appState: AppState
 
-    let message:  StoredMessage
-    var onDelete: (() -> Void)? = nil
-    var onReply:  (() -> Void)? = nil
+    let message:   StoredMessage
+    var onDelete:  (() -> Void)? = nil
+    var onReply:   (() -> Void)? = nil
+    var onForward: (() -> Void)? = nil
 
     @State private var attachmentData:    Data?    = nil
     @State private var showFullScreen:    Bool     = false
@@ -44,8 +45,13 @@ struct MessageBubbleView: View {
                             Button(action: onReply) {
                                 Label("Reply", systemImage: "arrowshape.turn.up.left")
                             }
-                            Divider()
                         }
+                        if let onForward {
+                            Button(action: onForward) {
+                                Label("Forward", systemImage: "arrowshape.turn.up.right")
+                            }
+                        }
+                        Divider()
                         Button {
                             UIPasteboard.general.string = message.body
                         } label: {

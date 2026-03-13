@@ -61,6 +61,13 @@ struct ChatView: View {
     // Reply
     @State private var replyingTo: StoredMessage? = nil
 
+    // Forward
+    @State private var forwardingMessage: StoredMessage? = nil
+
+    // Search
+    @State private var isSearching: Bool   = false
+    @State private var searchQuery: String = ""
+
     // Rename contact
     @State private var showingRenameAlert = false
     @State private var renameText: String = ""
@@ -69,6 +76,11 @@ struct ChatView: View {
 
     private var messages: [StoredMessage] {
         appState.messages[peer.id] ?? []
+    }
+
+    private var displayedMessages: [StoredMessage] {
+        guard isSearching, !searchQuery.isEmpty else { return messages }
+        return messages.filter { $0.body.localizedCaseInsensitiveContains(searchQuery) }
     }
 
     private var isOnline: Bool {
@@ -81,11 +93,12 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(messages) { message in
+                        ForEach(displayedMessages) { message in
                             MessageBubbleView(
-                                message: message,
-                                onDelete: { appState.deleteMessage(message) },
-                                onReply:  { withAnimation { replyingTo = message } }
+                                message:   message,
+                                onDelete:  { appState.deleteMessage(message) },
+                                onReply:   { withAnimation { replyingTo = message } },
+                                onForward: { forwardingMessage = message }
                             )
                             .id(message.id)
                         }
@@ -127,6 +140,27 @@ struct ChatView: View {
             }
 
             Divider()
+
+            // Search bar
+            if isSearching {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.tertiary)
+                    TextField("Search messages…", text: $searchQuery)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    if !searchQuery.isEmpty {
+                        Button { searchQuery = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.bar)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
 
             // Reply preview bar
             if let replying = replyingTo {
@@ -273,6 +307,14 @@ struct ChatView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 12) {
+                    // Search toggle
+                    Button {
+                        withAnimation { isSearching.toggle() }
+                        if !isSearching { searchQuery = "" }
+                    } label: {
+                        Image(systemName: isSearching ? "xmark.circle" : "magnifyingglass")
+                    }
+
                     // Online indicator
                     HStack(spacing: 4) {
                         Circle().fill(isOnline ? .green : .gray).frame(width: 8, height: 8)
@@ -349,6 +391,10 @@ struct ChatView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Set a custom name for \(peer.username).")
+        }
+        .sheet(item: $forwardingMessage) { message in
+            ForwardPickerView(message: message)
+                .environmentObject(appState)
         }
     }
 
@@ -530,6 +576,73 @@ private struct QRCodeView: View {
                 .padding(12)
                 .background(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+}
+
+// MARK: - Forward Picker
+
+struct ForwardPickerView: View {
+    @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    let message: StoredMessage
+
+    @State private var didForward = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if appState.peers.isEmpty {
+                    ContentUnavailableView(
+                        "No Contacts",
+                        systemImage: "person.slash",
+                        description: Text("No nearby peers to forward to.")
+                    )
+                } else {
+                    List(appState.peers) { peer in
+                        Button {
+                            appState.forwardMessage(message, toPeerID: peer.id)
+                            didForward = true
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Circle()
+                                    .fill(Color.accentColor.opacity(0.15))
+                                    .frame(width: 36, height: 36)
+                                    .overlay {
+                                        Text(String(appState.displayName(for: peer).prefix(1)).uppercased())
+                                            .font(.subheadline.bold())
+                                            .foregroundStyle(.accentColor)
+                                    }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(appState.displayName(for: peer))
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                    if appState.onlinePeers.contains(peer.id) {
+                                        Text("Online")
+                                            .font(.caption2)
+                                            .foregroundStyle(.green)
+                                    } else {
+                                        Text("Offline")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                Image(systemName: "arrowshape.turn.up.right")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Forward To")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
     }
 }

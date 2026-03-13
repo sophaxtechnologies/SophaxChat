@@ -8,6 +8,7 @@ import SwiftUI
 import UIKit
 import AVFoundation
 import LocalAuthentication
+import UserNotifications
 import SophaxChatCore
 
 @MainActor
@@ -75,8 +76,9 @@ final class AppState: ObservableObject {
             manager.delegate = self
             manager.start()
 
-            self.chatManager    = manager
+            self.chatManager     = manager
             self.isSetupComplete = true
+            requestNotificationPermission()
 
             loadExistingMessages(from: store)
         } catch {
@@ -161,11 +163,48 @@ final class AppState: ObservableObject {
 
     func markAsRead(peerID: String) {
         unreadCounts[peerID] = 0
+        // Clear any delivered notifications for this conversation
+        let ids = messages[peerID]?.map(\.id) ?? []
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
         // Send read receipts for received messages still showing as .delivered
         let unread = messages[peerID]?.filter { $0.direction == .received && $0.status == .delivered } ?? []
         if !unread.isEmpty {
             chatManager?.sendReadReceipts(messageIDs: unread.map(\.id), toPeerID: peerID)
         }
+    }
+
+    // MARK: - Forward message
+
+    /// Re-sends a stored message (text or attachment) to a different peer.
+    func forwardMessage(_ message: StoredMessage, toPeerID peerID: String, expiresAt: Date? = nil) {
+        if let id   = message.attachmentID,
+           let mime = message.attachmentMimeType,
+           let data = loadAttachment(id: id) {
+            chatManager?.sendAttachment(data, mimeType: mime, caption: message.body,
+                                        audioDuration: message.audioDuration,
+                                        toPeerID: peerID, expiresAt: expiresAt)
+        } else if !message.body.isEmpty {
+            chatManager?.sendMessage(message.body, toPeerID: peerID, expiresAt: expiresAt)
+        }
+    }
+
+    // MARK: - Notifications
+
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    }
+
+    private func scheduleNotification(for message: StoredMessage, fromPeer peerID: String) {
+        let content  = UNMutableNotificationContent()
+        let peerName = peers.first(where: { $0.id == peerID }).map { displayName(for: $0) } ?? "New message"
+        content.title           = peerName
+        content.body            = message.body
+        content.sound           = .default
+        content.threadIdentifier = peerID           // group notifications by conversation
+        content.categoryIdentifier = "SOPHAX_MSG"
+        let request = UNNotificationRequest(identifier: message.id, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
     }
 
     // MARK: - Contact aliases
@@ -321,6 +360,11 @@ extension AppState: ChatManagerDelegate {
         appendMessage(message)
         unreadCounts[peerID, default: 0] += 1
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        // Post a local notification when the app is not in the foreground
+        let appState = UIApplication.shared.applicationState
+        if appState == .background || appState == .inactive {
+            scheduleNotification(for: message, fromPeer: peerID)
+        }
     }
 
     func chatManager(_ manager: ChatManager, messageDelivered messageID: String, toPeer peerID: String) {
