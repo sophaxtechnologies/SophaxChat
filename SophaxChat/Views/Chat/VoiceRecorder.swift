@@ -39,7 +39,7 @@ final class VoiceRecorder: NSObject, ObservableObject {
             #if !targetEnvironment(macCatalyst)
             try AVAudioSession.sharedInstance().setCategory(.playAndRecord,
                                                              mode: .default,
-                                                             options: [.defaultToSpeaker, .allowBluetooth])
+                                                             options: [.defaultToSpeaker, .allowBluetoothA2DP])
             try AVAudioSession.sharedInstance().setActive(true)
             #endif
             recorder = try AVAudioRecorder(url: url, settings: settings)

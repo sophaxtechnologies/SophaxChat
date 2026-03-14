@@ -37,7 +37,7 @@ struct CreateGroupView: View {
                             .foregroundStyle(.secondary)
                             .font(.subheadline)
                     } else {
-                        ForEach(appState.peers.filter { !appState.isBlocked($0.id) }) { peer in
+                        ForEach(appState.peers.filter { !appState.isBlocked($0.id) }, id: \.id) { peer in
                             Button {
                                 if selectedPeerIDs.contains(peer.id) {
                                     selectedPeerIDs.remove(peer.id)

@@ -503,7 +503,7 @@ final class AppState: ObservableObject {
 
 // MARK: - ChatManagerDelegate
 
-extension AppState: ChatManagerDelegate {
+extension AppState: @preconcurrency ChatManagerDelegate {
 
     func chatManager(_ manager: ChatManager, didDiscoverPeer peer: KnownPeer) {
         guard !blockedPeers.contains(peer.id) else { return }
