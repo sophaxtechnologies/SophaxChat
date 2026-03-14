@@ -56,6 +56,10 @@ targets:
         UIBackgroundModes:
           - bluetooth-central
           - bluetooth-peripheral
+          - fetch
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.sophax.mesh-refresh
 
   SophaxChatCore:
     type: framework

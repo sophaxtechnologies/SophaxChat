@@ -59,6 +59,22 @@ struct ChatListView: View {
                     }
                 }
 
+                // Nearby channels — groups announced by peers the local user hasn't joined
+                let nearbyChannels = Array(appState.discoveredChannels.values)
+                    .sorted { $0.groupName < $1.groupName }
+                if !nearbyChannels.isEmpty {
+                    Section {
+                        ForEach(nearbyChannels, id: \.groupID) { channel in
+                            NearbyChannelRow(channel: channel)
+                        }
+                    } header: {
+                        Text("Nearby Channels")
+                    } footer: {
+                        Text("Groups advertised by nearby peers. Contact the creator to request an invite.")
+                            .font(.caption2)
+                    }
+                }
+
                 // Online peers without conversations yet
                 let newPeers = appState.peers.filter {
                     appState.messages[$0.id] == nil
@@ -250,6 +266,45 @@ struct GroupConversationRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Nearby Channel Row
+
+/// Row shown for groups announced by nearby peers that the local user hasn't joined.
+struct NearbyChannelRow: View {
+    @EnvironmentObject var appState: AppState
+    let channel: ChannelAnnouncement
+
+    /// The peer that created the channel, so the user can tap to open a DM.
+    private var creatorPeer: KnownPeer? {
+        appState.peers.first { $0.id == channel.creatorID }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.orange.opacity(0.15))
+                    .frame(width: 48, height: 48)
+                Image(systemName: "megaphone.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.orange)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(channel.groupName)
+                    .font(.subheadline.weight(.semibold))
+                Text("\(channel.memberCount) member\(channel.memberCount == 1 ? "" : "s") · Contact creator to join")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "arrow.right.circle")
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 

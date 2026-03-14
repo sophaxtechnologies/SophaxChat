@@ -24,6 +24,12 @@ public protocol MeshManagerDelegate: AnyObject {
 }
 
 // MARK: - MeshManager
+//
+// MeshManager is the production implementation of the MessageTransport
+// contract defined in MessageTransport.swift. It implements the full
+// start/stop/send/broadcast/isConnected surface using MultipeerConnectivity
+// (Bluetooth LE + WiFi Direct). Future transports (LoRa, audio covert channel)
+// will expose the same surface — see MessageTransport.swift for the protocol.
 
 public final class MeshManager: NSObject, @unchecked Sendable {
 

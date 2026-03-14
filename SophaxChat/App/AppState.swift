@@ -28,6 +28,9 @@ final class AppState: ObservableObject {
     @Published var peerAliases:  [String: String] = [:]
     @Published var errorMessage: String? = nil
     @Published var groups:       [GroupInfo] = []
+    /// Groups announced by nearby peers that the local user is NOT a member of.
+    /// Keyed by groupID; stale entries (>5 min old) are replaced on each announcement.
+    @Published var discoveredChannels: [String: ChannelAnnouncement] = [:]
 
     /// Safety Number pinning: peerID → safety number at time of verification.
     /// Nil entry = never verified. Different value = key changed warning.
@@ -99,6 +102,25 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Background operation
+
+    /// Called by the BGAppRefreshTask when iOS re-wakes the app after suspension.
+    /// Restarts the mesh briefly so any store-and-forward deliveries can complete
+    /// and outbound pending queues can be drained if peers are in range.
+    @MainActor
+    func handleBackgroundMeshRefresh() async {
+        // If setup is not complete (first launch) there's nothing to do.
+        guard isSetupComplete, let manager = chatManager else { return }
+
+        // Restart the mesh if it isn't already running
+        manager.start()
+
+        // Give MPC ~10 seconds to connect to any nearby peer and drain queues,
+        // then stop to avoid draining the battery further.
+        try? await Task.sleep(for: .seconds(10))
+        manager.stop()
+    }
+
     // MARK: - Message sending
 
     func sendMessage(_ text: String, toPeerID peerID: String, expiresAt: Date? = nil, replyToID: String? = nil) {
@@ -116,7 +138,8 @@ final class AppState: ObservableObject {
     // MARK: - Group messaging
 
     func createGroup(name: String, memberPeerIDs: [String]) {
-        chatManager?.createGroup(name: name, memberPeerIDs: memberPeerIDs)
+        guard let group = chatManager?.createGroup(name: name, memberPeerIDs: memberPeerIDs) else { return }
+        chatManager?.broadcastChannelAnnouncement(for: group)
     }
 
     func sendGroupMessage(_ text: String, group: GroupInfo, expiresAt: Date? = nil, replyToID: String? = nil) {
@@ -656,5 +679,13 @@ extension AppState: @preconcurrency ChatManagerDelegate {
                 errorMessage = nil
             }
         }
+    }
+
+    func chatManager(_ manager: ChatManager, didDiscoverChannel announcement: ChannelAnnouncement) {
+        // Only show groups the local user is not already a member of
+        let myID = manager.identity.publicIdentity.peerID
+        let alreadyMember = groups.contains { $0.id == announcement.groupID }
+        guard !alreadyMember, announcement.creatorID != myID else { return }
+        discoveredChannels[announcement.groupID] = announcement
     }
 }

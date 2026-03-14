@@ -98,6 +98,9 @@ public protocol ChatManagerDelegate: AnyObject {
     /// A member left a group. The delegate should update stored membership to `remainingMemberIDs`.
     func chatManager(_ manager: ChatManager, peer leavingPeerID: String,
                      leftGroupID groupID: String, remainingMemberIDs: [String])
+    /// A nearby peer is advertising a group that the local user is not a member of.
+    /// The delegate can surface this in a "Nearby channels" list.
+    func chatManager(_ manager: ChatManager, didDiscoverChannel announcement: ChannelAnnouncement)
 }
 
 // MARK: - ChatManager
@@ -308,6 +311,12 @@ public final class ChatManager: @unchecked Sendable {
             let content = MessageContent(body: text, replyToID: replyToID, expiresAt: expiresAt)
             let wire = try buildOutboundWire(content: content, messageID: messageID, toPeerID: peerID)
             try sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
+        } catch SophaxError.sessionStateCorrupted {
+            // Corrupt session was cleared in withSession(). Broadcast Hello so the
+            // peer re-initiates X3DH; the user should retry sending after reconnection.
+            try? messageStore.updateStatus(.failed, forMessageID: messageID, peerID: peerID)
+            broadcastHello()
+            delegate?.chatManager(self, didEncounterError: SophaxError.sessionStateCorrupted)
         } catch {
             try? messageStore.updateStatus(.failed, forMessageID: messageID, peerID: peerID)
             delegate?.chatManager(self, didEncounterError: error)
@@ -382,6 +391,34 @@ public final class ChatManager: @unchecked Sendable {
         return group
     }
 
+    /// Flood a channel announcement so nearby peers (non-members) can discover this group.
+    ///
+    /// Call this after `createGroup()` and whenever membership changes.
+    /// The announcement contains only the group name, creator ID, and member count —
+    /// no message content, no encryption keys.
+    public func broadcastChannelAnnouncement(for group: GroupInfo) {
+        let announcement = ChannelAnnouncement(
+            groupID:     group.id,
+            groupName:   group.name,
+            creatorID:   identity.publicIdentity.peerID,
+            memberCount: group.memberIDs.count
+        )
+        guard let wire = try? wireBuilder.build(.channelAnnouncement, payload: announcement) else { return }
+        try? mesh.broadcast(wire)
+    }
+
+    // MARK: - Private: Channel announcement handler
+
+    private func handleChannelAnnouncement(_ announcement: ChannelAnnouncement, fromPeer peerID: String) {
+        // Discard stale announcements (older than 5 minutes)
+        guard abs(announcement.timestamp.timeIntervalSinceNow) < 300 else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didDiscoverChannel: announcement)
+        }
+    }
+
     /// Send a text message to all members of a group.
     public func sendGroupMessage(_ body: String, groupID: String, members: [String], expiresAt: Date? = nil, replyToID: String? = nil) {
         guard !body.isEmpty else { return }
@@ -390,6 +427,33 @@ public final class ChatManager: @unchecked Sendable {
         let myUsername = identity.publicIdentity.username
         let messageID  = UUID().uuidString
         let timestamp  = Date()
+        let convID     = "group.\(groupID)"
+
+        // Helper: surface an encryption/storage failure to the UI.
+        func fail(_ error: Error) {
+            try? messageStore.updateStatus(.failed, forMessageID: messageID, peerID: convID)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.chatManager(self, didEncounterError: error)
+            }
+        }
+
+        // Store locally as .sending before encryption so the bubble appears immediately.
+        let stored = StoredMessage(
+            id: messageID, peerID: convID,
+            direction: .sent, body: body, status: .sending,
+            replyToID: replyToID, expiresAt: expiresAt, senderID: myID
+        )
+        do {
+            try messageStore.append(message: stored)
+        } catch {
+            delegate?.chatManager(self, didEncounterError: error)
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didReceiveGroupMessage: stored, inGroup: groupID)
+        }
 
         // Encrypt — prefer v2 (Sender Key ratchet), fall back to v1 (shared key)
         let ciphertext:         Data
@@ -402,18 +466,27 @@ public final class ChatManager: @unchecked Sendable {
             myState = SenderKeyState(chainKey: nextCK, iteration: iteration + 1)
             try? keychain.saveMySenderKeyState(myState, groupID: groupID)
             guard let bodyData = body.data(using: .utf8),
-                  let sealed   = try? ChaChaPoly.seal(bodyData, using: messageKey) else { return }
+                  let sealed   = try? ChaChaPoly.seal(bodyData, using: messageKey) else {
+                fail(SophaxError.encryptionFailed("Group message body encryption failed"))
+                return
+            }
             ciphertext         = sealed.combined
             senderKeyIteration = iteration
 
         } else if let groupKey = try? keychain.loadGroupKey(groupID: groupID) {
             // ── v1: shared key fallback ───────────────────────────────────────
             guard let bodyData = body.data(using: .utf8),
-                  let sealed   = try? ChaChaPoly.seal(bodyData, using: groupKey) else { return }
+                  let sealed   = try? ChaChaPoly.seal(bodyData, using: groupKey) else {
+                fail(SophaxError.encryptionFailed("Group message body encryption failed"))
+                return
+            }
             ciphertext         = sealed.combined
             senderKeyIteration = nil
 
-        } else { return }
+        } else {
+            fail(SophaxError.encryptionFailed("No group key found — group may have been left or key material deleted"))
+            return
+        }
 
         let wireMsg = GroupWireMessage(
             groupID:            groupID,
@@ -427,23 +500,25 @@ public final class ChatManager: @unchecked Sendable {
             replyToID:          replyToID
         )
 
-        // Store locally as sent (mark delivered immediately — no per-member ack for group)
-        let stored = StoredMessage(
-            id: messageID, peerID: "group.\(groupID)",
-            direction: .sent, body: body, status: .delivered,
-            replyToID: replyToID, expiresAt: expiresAt, senderID: myID
-        )
-        try? messageStore.append(message: stored)
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.delegate?.chatManager(self, didReceiveGroupMessage: stored, inGroup: groupID)
+        guard let wire = try? wireBuilder.build(.groupMessage, payload: wireMsg) else {
+            fail(SophaxError.encryptionFailed("Failed to build group wire message"))
+            return
         }
 
+        // Mark delivered (no per-member ACK in group), then broadcast.
+        try? messageStore.updateStatus(.delivered, forMessageID: messageID, peerID: convID)
+
         // Broadcast to each member (excluding self)
+        var sendError: Error? = nil
         for peerID in members where peerID != myID {
-            if let wire = try? wireBuilder.build(.groupMessage, payload: wireMsg) {
-                try? sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
+            do {
+                try sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
+            } catch {
+                sendError = error
             }
+        }
+        if let err = sendError {
+            delegate?.chatManager(self, didEncounterError: err)
         }
     }
 
@@ -473,9 +548,38 @@ public final class ChatManager: @unchecked Sendable {
         let displayBody  = caption.isEmpty
             ? (msgType == .image ? "📷 Photo" : "🎤 Voice message")
             : caption
+        let convID = "group.\(groupID)"
+
+        // Helper: surface an encryption/storage failure to the UI.
+        func fail(_ error: Error) {
+            try? messageStore.updateStatus(.failed, forMessageID: messageID, peerID: convID)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.chatManager(self, didEncounterError: error)
+            }
+        }
 
         // Save attachment locally for sender's own bubble
         try? attachmentStore.save(data, id: attachmentID)
+
+        // Store locally as .sending so the bubble appears immediately.
+        let stored = StoredMessage(
+            id: messageID, peerID: convID,
+            direction: .sent, body: displayBody, status: .sending,
+            replyToID: replyToID, expiresAt: expiresAt,
+            attachmentID: attachmentID, attachmentMimeType: mimeType,
+            audioDuration: audioDuration, senderID: myID
+        )
+        do {
+            try messageStore.append(message: stored)
+        } catch {
+            delegate?.chatManager(self, didEncounterError: error)
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, didReceiveGroupMessage: stored, inGroup: groupID)
+        }
 
         // Encrypt body + attachment — prefer v2 (Sender Keys), fall back to v1 (shared key)
         // Both body and attachment use the SAME message key (one chain step = one message).
@@ -491,7 +595,10 @@ public final class ChatManager: @unchecked Sendable {
             try? keychain.saveMySenderKeyState(myState, groupID: groupID)
             guard let bodyData   = displayBody.data(using: .utf8),
                   let sealedBody = try? ChaChaPoly.seal(bodyData, using: messageKey),
-                  let sealedAtt  = try? ChaChaPoly.seal(data,     using: messageKey) else { return }
+                  let sealedAtt  = try? ChaChaPoly.seal(data,     using: messageKey) else {
+                fail(SophaxError.encryptionFailed("Group attachment encryption failed"))
+                return
+            }
             bodyCiphertext     = sealedBody.combined
             attCiphertext      = sealedAtt.combined
             senderKeyIteration = iteration
@@ -500,12 +607,18 @@ public final class ChatManager: @unchecked Sendable {
             // ── v1: shared key fallback ───────────────────────────────────────
             guard let bodyData   = displayBody.data(using: .utf8),
                   let sealedBody = try? ChaChaPoly.seal(bodyData, using: groupKey),
-                  let sealedAtt  = try? ChaChaPoly.seal(data,     using: groupKey) else { return }
+                  let sealedAtt  = try? ChaChaPoly.seal(data,     using: groupKey) else {
+                fail(SophaxError.encryptionFailed("Group attachment encryption failed"))
+                return
+            }
             bodyCiphertext     = sealedBody.combined
             attCiphertext      = sealedAtt.combined
             senderKeyIteration = nil
 
-        } else { return }
+        } else {
+            fail(SophaxError.encryptionFailed("No group key found — group may have been left or key material deleted"))
+            return
+        }
 
         let wireMsg = GroupWireMessage(
             groupID:              groupID,
@@ -522,23 +635,24 @@ public final class ChatManager: @unchecked Sendable {
             replyToID:            replyToID
         )
 
-        let stored = StoredMessage(
-            id: messageID, peerID: "group.\(groupID)",
-            direction: .sent, body: displayBody, status: .delivered,
-            replyToID: replyToID, expiresAt: expiresAt,
-            attachmentID: attachmentID, attachmentMimeType: mimeType,
-            audioDuration: audioDuration, senderID: myID
-        )
-        try? messageStore.append(message: stored)
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.delegate?.chatManager(self, didReceiveGroupMessage: stored, inGroup: groupID)
+        guard let wire = try? wireBuilder.build(.groupMessage, payload: wireMsg) else {
+            fail(SophaxError.encryptionFailed("Failed to build group wire message"))
+            return
         }
 
+        // Mark delivered (no per-member ACK in group), then broadcast.
+        try? messageStore.updateStatus(.delivered, forMessageID: messageID, peerID: convID)
+
+        var sendError: Error? = nil
         for peerID in members where peerID != myID {
-            if let wire = try? wireBuilder.build(.groupMessage, payload: wireMsg) {
-                try? sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
+            do {
+                try sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
+            } catch {
+                sendError = error
             }
+        }
+        if let err = sendError {
+            delegate?.chatManager(self, didEncounterError: err)
         }
     }
 
@@ -620,6 +734,10 @@ public final class ChatManager: @unchecked Sendable {
             )
             let wire = try buildOutboundWire(content: content, messageID: messageID, toPeerID: peerID)
             try sendOrQueue(wire, toPeerID: peerID, messageID: messageID)
+        } catch SophaxError.sessionStateCorrupted {
+            try? messageStore.updateStatus(.failed, forMessageID: messageID, peerID: peerID)
+            broadcastHello()
+            delegate?.chatManager(self, didEncounterError: SophaxError.sessionStateCorrupted)
         } catch {
             try? messageStore.updateStatus(.failed, forMessageID: messageID, peerID: peerID)
             delegate?.chatManager(self, didEncounterError: error)
@@ -796,7 +914,16 @@ public final class ChatManager: @unchecked Sendable {
             guard let data = try? keychain.loadSessionState(peerID: peerID) else {
                 return nil   // No persisted session — not an error
             }
-            ratchet = try DoubleRatchet.importState(data)   // throws if state is corrupted
+            do {
+                ratchet = try DoubleRatchet.importState(data)
+            } catch {
+                // Persisted state is malformed or truncated (e.g. crash mid-write).
+                // Delete the corrupt blob so the next outbound message triggers
+                // a clean X3DH re-initiation rather than failing indefinitely.
+                try? keychain.deleteSessionState(peerID: peerID)
+                sessions.removeValue(forKey: peerID)
+                throw SophaxError.sessionStateCorrupted
+            }
             sessions[peerID] = ratchet
         }
 
@@ -1638,6 +1765,12 @@ extension ChatManager: MeshManagerDelegate {
                 let payload = try wireBuilder.decodePayload(StoreAndForwardDelivery.self, from: message)
                 handleStoreAndForwardDelivery(payload)
 
+            case .channelAnnouncement:
+                // Channel announcements are direct-broadcast only (1 hop).
+                // They are signed so we can verify the creator's identity.
+                let payload = try wireBuilder.decodePayload(ChannelAnnouncement.self, from: message)
+                handleChannelAnnouncement(payload, fromPeer: message.senderID)
+
             case .relay:
                 let envelope = try wireBuilder.decodePayload(RelayEnvelope.self, from: message)
                 try handleRelay(envelope, fromRelayPeer: message.senderID)
@@ -1662,6 +1795,13 @@ extension ChatManager: MeshManagerDelegate {
                     self.delegate?.chatManager(self, peerDidUpdateTyping: senderID, isTyping: isTyping)
                 }
             }
+        } catch SophaxError.sessionStateCorrupted {
+            // The persisted DR session blob was malformed (e.g. crashed mid-write).
+            // The corrupt state has already been purged from Keychain in withSession().
+            // Re-broadcast our Hello so the sender's next message triggers a fresh
+            // X3DH handshake from their side, restoring the session automatically.
+            broadcastHello()
+            delegate?.chatManager(self, didEncounterError: SophaxError.sessionStateCorrupted)
         } catch {
             #if DEBUG
             print("[ChatManager] ❌ Error: \(error) | type=\(message.type.rawValue)")

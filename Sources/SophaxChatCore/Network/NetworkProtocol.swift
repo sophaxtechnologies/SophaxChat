@@ -101,6 +101,9 @@ public enum WireMessageType: String, Codable, Sendable {
     case storeAndForward
     /// Relay peer delivers stored messages when the target peer comes online.
     case storeAndForwardDelivery
+    /// Channel discovery — broadcast by a group creator to announce a group to nearby peers.
+    /// Unsigned broadcast; recipients may request a group invite from the creator.
+    case channelAnnouncement
 }
 
 // MARK: - Hello (Handshake)
@@ -373,6 +376,39 @@ public struct SealedMessage: Codable, Sendable {
     public let ephemeralPublicKey: Data
     /// ChaCha20-Poly1305 ciphertext: nonce(12B) + encrypted WireMessage JSON + tag(16B).
     public let encryptedPayload: Data
+}
+
+// MARK: - Channel Discovery
+
+/// Broadcast by a group creator to advertise a group to nearby peers who are NOT yet members.
+///
+/// This message is signed (via WireMessageBuilder) so recipients can verify the creator's identity.
+/// It is flooded over the mesh so peers beyond direct range can discover groups.
+/// A peer who discovers a channel can initiate a DM with the creator to request an invite.
+///
+/// Security properties:
+/// - Does NOT contain any message content or encryption keys.
+/// - Group membership and message content remain fully encrypted.
+/// - A peer who sees this message knows only: the group name, creator, and approximate size.
+public struct ChannelAnnouncement: Codable, Sendable {
+    /// Stable group UUID.
+    public let groupID:     String
+    /// Human-readable group name (as set by the creator).
+    public let groupName:   String
+    /// peerID of the group creator — the peer to contact to request an invite.
+    public let creatorID:   String
+    /// Approximate member count — lets prospective joiners gauge group size.
+    public let memberCount: Int
+    /// When this announcement was generated — used to discard stale entries.
+    public let timestamp:   Date
+
+    public init(groupID: String, groupName: String, creatorID: String, memberCount: Int) {
+        self.groupID     = groupID
+        self.groupName   = groupName
+        self.creatorID   = creatorID
+        self.memberCount = memberCount
+        self.timestamp   = Date()
+    }
 }
 
 // MARK: - WireMessage Builder

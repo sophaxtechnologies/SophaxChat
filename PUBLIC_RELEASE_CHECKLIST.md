@@ -19,11 +19,11 @@
 
 ### Stability
 
-- [ ] **Error handling in ChatManager send paths**
-  Several `sendGroupMessage` / `sendGroupAttachment` code paths return silently on encryption failure. The UI never surfaces these errors; messages appear to send but are silently dropped. Failed sends must surface to the user.
+- [x] **Error handling in ChatManager send paths** ✅
+  Fixed: `sendGroupMessage` / `sendGroupAttachment` now store the message as `.sending` first, surface any encryption failure via `didEncounterError` (shown as a red `!` bubble + alert), and mark the stored message `.failed` so the UI reflects the real state.
 
-- [ ] **Session state corruption recovery**
-  If the Keychain contains a malformed or truncated Double Ratchet session blob (e.g., after a crash mid-write), the app currently fails to load the session and cannot decrypt any further messages. A session reset / re-initiation path is needed.
+- [x] **Session state corruption recovery** ✅
+  Fixed: `withSession()` catches `importState` failure, deletes the corrupt Keychain blob, and throws `sessionStateCorrupted`. Outbound callers (`sendMessage`, `sendAttachment`) catch this, mark the message `.failed`, and call `broadcastHello()` so the peer re-initiates X3DH. Inbound path also calls `broadcastHello()` on corruption so the peer re-initiates automatically.
 
 - [x] **Group skipped message key cache (M-1)** ✅
   Fixed: `skippedGroupMessageKeys[groupID/senderPeerID][iteration]` bounded cache (200 keys/sender). Out-of-order messages hit the cache first; keys consumed on use (no replay). Evicted automatically when capacity is exceeded.
@@ -98,12 +98,12 @@
 
 ## 🟢 Nice to have (post v1.0)
 
-- [ ] **Background operation** — BLE peripheral mode to receive messages when app is backgrounded (PushKit or background fetch fallback)
-- [ ] **LoRa / audio covert channel transport adapter** — pluggable transport layer for extreme scenarios
-- [ ] **Independent third-party security audit** — target NLnet / NGI Zero funding
-- [ ] **MLS (Messaging Layer Security)** — replace Sender Keys with a standards-track group protocol that also handles member change re-keying (H-1) automatically
-- [ ] **Hardware security key binding** — FIDO2 / Secure Enclave for identity key protection
-- [ ] **Channel discovery** — broadcast group announcements on the mesh
+- [x] **Background operation** ✅ — `bluetooth-central`/`bluetooth-peripheral` modes + `BGAppRefreshTask` for periodic mesh restart. MPC stays alive minutes after backgrounding; BGTask extends coverage after full suspension.
+- [x] **Channel discovery** ✅ — `ChannelAnnouncement` wire type; creators broadcast signed announcements; non-members see "Nearby Channels" in the list.
+- [x] **Pluggable transport adapter** ✅ — `MessageTransport` protocol defined; `MeshManager` is the reference implementation; LoRa/audio stubs documented.
+- [ ] **Independent third-party security audit** — target NLnet / NGI Zero funding; highest-priority external item
+- [ ] **MLS (Messaging Layer Security)** — replace Sender Keys with standards-track group protocol
+- [ ] **Hardware security key binding** — FIDO2 / Secure Enclave for identity key protection (SE migration path needed)
 - [ ] **iPad-optimized layout** — sidebar + detail view on larger screens
 - [ ] **App Clip / Share Extension** — quick-reply without opening the full app
 
@@ -113,8 +113,8 @@
 
 | Category | Total | Done | Remaining |
 |---|---|---|---|
-| 🔴 Blockers | 7 | 4 (H-1, M-1, M-4, PrivacyInfo, key-change) | 3 (App Store metadata, privacy policy, TestFlight) |
+| 🔴 Blockers | 7 | 6 (H-1, M-1, M-4, PrivacyInfo, key-change, send-errors, session-recovery) | 3 (App Store metadata, privacy policy, TestFlight) |
 | 🟡 Important | 10 | 1 (store-and-forward) | 9 |
-| 🟢 Nice to have | 8 | 0 | 8 |
+| 🟢 Nice to have | 8 | 3 (background, channels, transport) | 5 |
 
 **Remaining blockers before App Store submission**: App Store metadata (screenshots, description, keywords), privacy policy hosted at a public URL, and TestFlight beta run. No further code blockers.

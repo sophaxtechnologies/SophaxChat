@@ -456,13 +456,16 @@ Do not open public issues for security bugs.
 - [x] PrivacyInfo.xcprivacy (App Store privacy manifest)
 - [x] Store-and-forward via relay peers (48h TTL, up to 300 items, delivered on reconnect)
 
-### Pending
+### Completed (continued)
 
-- [ ] Background operation (BLE central/peripheral mode for background delivery)
-- [ ] Channel discovery (broadcast announcements)
-- [ ] Independent third-party security audit (NLnet / NGI grant target)
-- [ ] Hardware security key support (FIDO2 / Secure Enclave binding)
-- [ ] Custom transport adapter (pluggable: LoRa, audio covert channel)
+- [x] Background operation — `bluetooth-central` + `bluetooth-peripheral` background modes declared; `BGAppRefreshTask` registered (`com.sophax.mesh-refresh`) to restart the mesh briefly after iOS suspends the process and drain any pending queues. MPC sessions survive for several minutes after backgrounding with BLE background modes alone.
+- [x] Channel discovery — `ChannelAnnouncement` wire message type added. Group creators broadcast signed announcements to all nearby peers (1 hop). Non-members see a "Nearby Channels" section in the conversation list; they can contact the creator to request an invite.
+- [x] Pluggable transport adapter — `MessageTransport` protocol defined in `Network/MessageTransport.swift`. `MeshManager` is the production implementation (MultipeerConnectivity). Future adapters (LoRa, acoustic covert channel) implement the same `start/stop/send/broadcast/isConnected` surface. Adapter stubs and specification notes are in the protocol file.
+
+### Seeking external support
+
+- [ ] **Independent third-party security audit** — highest-priority post-v1.0 item. Target: [NLnet / NGI Zero](https://nlnet.nl/NGI0/) grant. Contact security@sophax.com if you are interested in auditing.
+- [ ] **Hardware security key binding** — Secure Enclave identity key storage (migration path needed for existing installs) and FIDO2 external key support (requires ASAuthorizationSecurityKeyPublicKeyCredentialProvider, iOS 16+). Planned post-audit.
 
 ---
 
@@ -480,7 +483,7 @@ Pull requests are welcome. Before contributing:
 - **UI/UX** — the interface is functional, not polished
 - **Tests** — relay dedup, group sender key, session initiation edge cases
 - **Localization** — the app currently ships in English only
-- **Background BLE** — central/peripheral mode for background message delivery
+- **LoRa / audio transport** — implement `MessageTransport` for LoRa radio or near-ultrasonic audio channel (see `Network/MessageTransport.swift`)
 
 ---
 
