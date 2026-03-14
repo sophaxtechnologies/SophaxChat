@@ -95,6 +95,8 @@ public enum WireMessageType: String, Codable, Sendable {
     case groupMessage
     /// Emoji reaction on a specific group message.
     case groupReaction
+    /// A member voluntarily left a group — triggers sender-key rotation in remaining members.
+    case groupMemberLeft
 }
 
 // MARK: - Hello (Handshake)
@@ -487,6 +489,24 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
         self.reactions          = reactions
         self.senderID           = senderID
         self.receivedAt         = receivedAt
+    }
+}
+
+// MARK: - Group Member Left
+
+/// Broadcast by a member who is voluntarily leaving a group.
+/// Recipients use this to update their local member list and rotate their sender keys
+/// so the leaver cannot decrypt future messages.
+public struct GroupMemberLeftMessage: Codable, Sendable {
+    public let groupID:           String
+    public let leavingPeerID:     String
+    /// Remaining member peerIDs (does NOT include the leaver).
+    public let remainingMemberIDs: [String]
+
+    public init(groupID: String, leavingPeerID: String, remainingMemberIDs: [String]) {
+        self.groupID            = groupID
+        self.leavingPeerID      = leavingPeerID
+        self.remainingMemberIDs = remainingMemberIDs
     }
 }
 

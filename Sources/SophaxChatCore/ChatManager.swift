@@ -95,6 +95,9 @@ public protocol ChatManagerDelegate: AnyObject {
     /// Emoji reactions on a group message were updated.
     func chatManager(_ manager: ChatManager, didUpdateGroupReactions reactions: [String: String],
                      onMessageID messageID: String, groupID: String)
+    /// A member left a group. The delegate should update stored membership to `remainingMemberIDs`.
+    func chatManager(_ manager: ChatManager, peer leavingPeerID: String,
+                     leftGroupID groupID: String, remainingMemberIDs: [String])
 }
 
 // MARK: - ChatManager
@@ -520,8 +523,28 @@ public final class ChatManager: @unchecked Sendable {
         }
     }
 
-    /// Remove the local user from a group: delete all key material and stored messages.
+    /// Remove the local user from a group.
+    ///
+    /// Broadcasts a `.groupMemberLeft` notification to all remaining members so they
+    /// can update their local membership list and rotate their sender keys (ensuring
+    /// the leaver cannot decrypt any future group messages).
     public func leaveGroup(_ group: GroupInfo) {
+        let myID = identity.publicIdentity.peerID
+        let remaining = group.memberIDs.filter { $0 != myID }
+
+        // Notify all remaining members before deleting local crypto state
+        let leaveMsg = GroupMemberLeftMessage(
+            groupID:            group.id,
+            leavingPeerID:      myID,
+            remainingMemberIDs: remaining
+        )
+        if let wire = try? wireBuilder.build(.groupMemberLeft, payload: leaveMsg) {
+            for peerID in remaining {
+                try? sendOrQueue(wire, toPeerID: peerID, messageID: UUID().uuidString)
+            }
+        }
+
+        // Clean up local state
         keychain.deleteGroupKey(groupID: group.id)               // v1 cleanup
         keychain.deleteAllSenderKeyStates(groupID: group.id)     // v2 cleanup
         try? messageStore.deleteConversation(peerID: group.conversationID)
@@ -1052,6 +1075,48 @@ public final class ChatManager: @unchecked Sendable {
         }
     }
 
+    private func handleGroupMemberLeft(_ payload: GroupMemberLeftMessage) {
+        let myID    = identity.publicIdentity.peerID
+        let groupID = payload.groupID
+
+        // Notify the delegate so the UI can remove the leaver from the member list
+        let leavingPeerID = payload.leavingPeerID
+        let remaining     = payload.remainingMemberIDs
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, peer: leavingPeerID,
+                                       leftGroupID: groupID, remainingMemberIDs: remaining)
+        }
+
+        // Only remaining members rotate; if we're the leaver this message is irrelevant
+        guard remaining.contains(myID) else { return }
+
+        // Remove the leaver's sender key state so we stop trying to decrypt with old material
+        var states = keychain.loadPeerSenderKeyStates(groupID: groupID)
+        states.removeValue(forKey: leavingPeerID)
+        try? keychain.savePeerSenderKeyStates(states, groupID: groupID)
+
+        // Rotate our own sender key (fresh random seed) so the leaver's copy of our
+        // old chain key is no longer valid for any future messages.
+        guard keychain.loadMySenderKeyState(groupID: groupID) != nil else { return }
+        let tmpKey      = SymmetricKey(size: .bits256)
+        let newChainKey = tmpKey.withUnsafeBytes { Data($0) }
+        try? keychain.saveMySenderKeyState(
+            SenderKeyState(chainKey: newChainKey, iteration: 0), groupID: groupID)
+
+        // Re-distribute our new sender key to every remaining member (excluding self)
+        let skd = SenderKeyDistributionMessage(groupID: groupID, chainKey: newChainKey, iteration: 0)
+        guard let skdData = try? JSONEncoder().encode(skd) else { return }
+        for memberID in remaining where memberID != myID {
+            let content = MessageContent(body: "", type: .senderKeyDistribution, senderKeyData: skdData)
+            if let wire = try? buildOutboundWire(content: content,
+                                                  messageID: UUID().uuidString,
+                                                  toPeerID: memberID) {
+                try? sendOrQueue(wire, toPeerID: memberID, messageID: UUID().uuidString)
+            }
+        }
+    }
+
     private func handleGroupInviteReceived(_ inviteData: Data, fromPeer peerID: String) {
         guard let invite = try? JSONDecoder().decode(GroupInvitePayload.self, from: inviteData) else { return }
         let myID = identity.publicIdentity.peerID
@@ -1268,6 +1333,10 @@ public final class ChatManager: @unchecked Sendable {
             let payload = try wireBuilder.decodePayload(GroupReactionMessage.self, from: message)
             handleGroupReaction(payload, fromPeer: message.senderID)
 
+        case .groupMemberLeft:
+            let payload = try wireBuilder.decodePayload(GroupMemberLeftMessage.self, from: message)
+            handleGroupMemberLeft(payload)
+
         case .relay, .typing:
             break   // No relay-of-relay; typing over relay has no value
         }
@@ -1424,6 +1493,10 @@ extension ChatManager: MeshManagerDelegate {
             case .groupReaction:
                 let payload = try wireBuilder.decodePayload(GroupReactionMessage.self, from: message)
                 handleGroupReaction(payload, fromPeer: message.senderID)
+
+            case .groupMemberLeft:
+                let payload = try wireBuilder.decodePayload(GroupMemberLeftMessage.self, from: message)
+                handleGroupMemberLeft(payload)
 
             case .relay:
                 let envelope = try wireBuilder.decodePayload(RelayEnvelope.self, from: message)

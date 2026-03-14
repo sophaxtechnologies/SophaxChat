@@ -293,6 +293,16 @@ final class AppState: ObservableObject {
     // MARK: - Notifications
 
     private func requestNotificationPermission() {
+        // Register category with a placeholder so the message body is hidden
+        // when the user has "Show Previews: When Unlocked" or "Never" set in system Settings.
+        let category = UNNotificationCategory(
+            identifier: "SOPHAX_MSG",
+            actions: [],
+            intentIdentifiers: [],
+            hiddenPreviewsBodyPlaceholder: NSLocalizedString("New message", comment: ""),
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([category])
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
@@ -498,7 +508,20 @@ extension AppState: ChatManagerDelegate {
     func chatManager(_ manager: ChatManager, didDiscoverPeer peer: KnownPeer) {
         guard !blockedPeers.contains(peer.id) else { return }
         if let idx = peers.firstIndex(where: { $0.id == peer.id }) {
-            peers[idx].isOnline = true
+            let existing = peers[idx]
+            // TOFU key-change detection: if the signing key is different from what we knew,
+            // inject the old safety number into verifiedPeers so hasKeyChanged() fires in the UI.
+            if existing.signingKeyPublic != peer.signingKeyPublic {
+                if verifiedPeers[peer.id] == nil {
+                    verifiedPeers[peer.id] = existing.safetyNumber
+                    saveVerifiedPeers()
+                }
+                // Replace the stored peer with the new key data
+                peers[idx] = peer
+                savePeers()
+            } else {
+                peers[idx].isOnline = true
+            }
         } else {
             peers.append(peer)
             savePeers()
@@ -589,6 +612,19 @@ extension AppState: ChatManagerDelegate {
         if let idx = messages[convID]?.firstIndex(where: { $0.id == messageID }) {
             messages[convID]?[idx].reactions = reactions.isEmpty ? nil : reactions
         }
+    }
+
+    func chatManager(_ manager: ChatManager, peer leavingPeerID: String,
+                     leftGroupID groupID: String, remainingMemberIDs: [String]) {
+        guard let idx = groups.firstIndex(where: { $0.id == groupID }) else { return }
+        let old = groups[idx]
+        groups[idx] = GroupInfo(
+            id:        old.id,
+            name:      old.name,
+            memberIDs: remainingMemberIDs,
+            creatorID: old.creatorID
+        )
+        saveGroups()
     }
 
     func chatManager(_ manager: ChatManager, didJoinGroup group: GroupInfo) {
