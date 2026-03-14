@@ -205,7 +205,8 @@ All private keys and session states are stored in the **iOS Keychain** with `kSe
 | Leave group | ✅ |
 | Member list sheet | ✅ |
 | Group push notifications | ✅ |
-| Out-of-order message recovery (up to skip 100) | ✅ |
+| Out-of-order message recovery (skipped key cache, 200 keys/sender) | ✅ |
+| Re-keying on member leave (forward secrecy) | ✅ |
 
 ### Security & Privacy
 
@@ -221,6 +222,8 @@ All private keys and session states are stored in the **iOS Keychain** with `kSe
 | App Switcher blur | ✅ |
 | AES-256-GCM at-rest message storage | ✅ |
 | Block peer | ✅ |
+| TOFU key-change warning (Safety Number changed banner) | ✅ |
+| Notification content hiding on lock screen (M-4) | ✅ |
 
 ### Network & Transport
 
@@ -234,6 +237,7 @@ All private keys and session states are stored in the **iOS Keychain** with `kSe
 | Rate limiting (20 relays / 10s per peer) | ✅ |
 | Relay hop indicator in UI | ✅ |
 | Typing indicators | ✅ |
+| Store-and-forward via relay peers (48h TTL, 300 items) | ✅ |
 | macOS Catalyst support | ✅ |
 
 ---
@@ -400,11 +404,11 @@ See [SECURITY.md § Security Review Findings](SECURITY.md) for full details. Key
 
 | Finding | Severity | Summary |
 |---|---|---|
-| H-1 | HIGH | No group re-keying on member leave — departed member retains decryption ability |
-| M-1 | MEDIUM | Group skipped message keys not cached — out-of-order messages may be irrecoverable |
+| ~~H-1~~ | ~~HIGH~~ | ~~No group re-keying on member leave~~ — **fixed**: fresh sender chain rotated on every membership change |
+| ~~M-1~~ | ~~MEDIUM~~ | ~~Group skipped message keys not cached~~ — **fixed**: bounded cache (200 keys/sender) with auto-eviction |
 | M-2 | MEDIUM | Sender Key Distribution may arrive after first messages in high-load scenarios |
 | M-3 | MEDIUM | One-time prekey exhaustion window reduces X3DH entropy temporarily |
-| M-4 | MEDIUM | Notification previews may expose content on lock screen |
+| ~~M-4~~ | ~~MEDIUM~~ | ~~Notification previews may expose content on lock screen~~ — **fixed**: `hiddenPreviewsBodyPlaceholder` registered |
 
 ### Responsible Disclosure
 
@@ -445,15 +449,17 @@ Do not open public issues for security bugs.
 - [x] Group disappearing messages
 - [x] Group member list + leave group
 - [x] macOS Catalyst support
+- [x] Group re-keying on member leave (H-1 — fresh sender chain on every membership change)
+- [x] Group skipped message key cache (M-1 — bounded 200 keys/sender, auto-eviction)
+- [x] Notification content hiding on lock screen (M-4 — `hiddenPreviewsBodyPlaceholder`)
+- [x] TOFU key-change detection (Safety Number changed banner)
+- [x] PrivacyInfo.xcprivacy (App Store privacy manifest)
+- [x] Store-and-forward via relay peers (48h TTL, up to 300 items, delivered on reconnect)
 
 ### Pending
 
-- [ ] **Group re-keying on member change** (H-1 — highest priority security fix)
-- [ ] Group skipped message key cache (M-1)
-- [ ] Notification content hiding on lock screen (M-4)
 - [ ] Background operation (BLE central/peripheral mode for background delivery)
 - [ ] Channel discovery (broadcast announcements)
-- [ ] Store-and-forward via trusted relay peers
 - [ ] Independent third-party security audit (NLnet / NGI grant target)
 - [ ] Hardware security key support (FIDO2 / Secure Enclave binding)
 - [ ] Custom transport adapter (pluggable: LoRa, audio covert channel)
@@ -471,10 +477,10 @@ Pull requests are welcome. Before contributing:
 
 ### Areas where help is especially welcome
 
-- **Group re-keying** — implement H-1 fix (forward secrecy on member leave)
 - **UI/UX** — the interface is functional, not polished
 - **Tests** — relay dedup, group sender key, session initiation edge cases
 - **Localization** — the app currently ships in English only
+- **Background BLE** — central/peripheral mode for background message delivery
 
 ---
 

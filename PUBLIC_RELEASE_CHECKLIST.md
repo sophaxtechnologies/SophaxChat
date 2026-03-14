@@ -8,14 +8,14 @@
 
 ### Security
 
-- [ ] **H-1: Group re-keying on member leave**
-  Highest-priority security gap. A member who leaves (or is removed) retains all historical sender key chain states and can decrypt any future group traffic they capture. All remaining members must generate fresh sender chains and redistribute them on every membership change. Without this fix, group forward secrecy is meaningless after member churn.
+- [x] **H-1: Group re-keying on member leave** ✅
+  Fixed: `leaveGroup()` broadcasts `groupMemberLeft` before deleting local key material. Remaining members rotate to a fresh random sender chain and redistribute it via their individual DR channels. Departed member loses forward access.
 
-- [ ] **Notification content hiding (M-4)**
-  `UNNotificationContent` previews are shown on the lock screen by default, exposing plaintext message content before the user authenticates. Set `hiddenPreviewsBodyPlaceholder` and replace body with a generic placeholder. This is a one-line fix with significant privacy impact.
+- [x] **Notification content hiding (M-4)** ✅
+  Fixed: `UNNotificationCategory("SOPHAX_MSG")` registered in `requestNotificationPermission()` with `hiddenPreviewsBodyPlaceholder = "New message"`. iOS hides body when user sets Show Previews to "When Unlocked" or "Never".
 
-- [ ] **Key rotation UI / warning on key change**
-  If a peer's identity key changes (device wipe, reinstall), the app should warn the user with a prominent "Safety Number changed" banner — like Signal does — rather than silently trusting the new key. Without this, re-installation silently re-establishes trust without user awareness.
+- [x] **Key rotation UI / warning on key change** ✅
+  Fixed: TOFU detection in `didDiscoverPeer` — if a peer's `signingKeyPublic` changes and they were never verified, the old safety number is injected into `verifiedPeers` so `hasKeyChanged()` fires the "Safety Number changed" red banner on next open.
 
 ### Stability
 
@@ -25,13 +25,13 @@
 - [ ] **Session state corruption recovery**
   If the Keychain contains a malformed or truncated Double Ratchet session blob (e.g., after a crash mid-write), the app currently fails to load the session and cannot decrypt any further messages. A session reset / re-initiation path is needed.
 
-- [ ] **Group skipped message key cache (M-1)**
-  Out-of-order group messages beyond the MAX_SKIP=100 window are silently dropped and irrecoverable. The fix is caching intermediate message keys in a bounded table (same approach as the DR layer).
+- [x] **Group skipped message key cache (M-1)** ✅
+  Fixed: `skippedGroupMessageKeys[groupID/senderPeerID][iteration]` bounded cache (200 keys/sender). Out-of-order messages hit the cache first; keys consumed on use (no replay). Evicted automatically when capacity is exceeded.
 
 ### App Store / Distribution
 
-- [ ] **Privacy manifest (`PrivacyInfo.xcprivacy`)**
-  Required by Apple for all apps submitted to the App Store since Spring 2024. Must declare: no third-party SDKs with required reasons, no API usage that requires a reason (check for `UserDefaults`, `FileManager`, `NSFileProtection`, etc.). Currently missing.
+- [x] **Privacy manifest (`PrivacyInfo.xcprivacy`)** ✅
+  Added: `NSPrivacyTracking=false`, no tracking domains, no collected data types, UserDefaults access declared with reason `CA92.1` (read/write by same app only).
 
 - [ ] **App Store metadata**
   App name, subtitle, description, keywords, screenshots (iPhone 6.7", iPad 12.9"), support URL, privacy policy URL. None of these exist yet.
@@ -62,8 +62,8 @@
 
 ### UX / Completeness
 
-- [ ] **Offline store-and-forward**
-  Currently, if Alice sends a message to Bob and Bob is not reachable via the mesh (not even via relay through a common peer), the message is queued in memory and lost on app restart. A persistent offline queue (stored to disk, replayed on peer reconnect) would significantly improve reliability.
+- [x] **Offline store-and-forward** ✅
+  Fixed: When a relay peer is the only path to the target, the sealed message is also broadcast as a `StoreAndForwardRequest`. Relay peers cache up to 300 items with a 48-hour TTL and deliver them in a batch (`StoreAndForwardDelivery`) when the target peer next connects (triggered from `handleHello`).
 
 - [ ] **Group reply and reactions**
   Currently reply-to and emoji reactions are 1:1 only. Group conversations are missing these features.
@@ -111,10 +111,10 @@
 
 ## Summary
 
-| Category | Count | Status |
-|---|---|---|
-| 🔴 Blockers | 7 | Must fix |
-| 🟡 Important | 10 | Should fix |
-| 🟢 Nice to have | 8 | Post v1.0 |
+| Category | Total | Done | Remaining |
+|---|---|---|---|
+| 🔴 Blockers | 7 | 4 (H-1, M-1, M-4, PrivacyInfo, key-change) | 3 (App Store metadata, privacy policy, TestFlight) |
+| 🟡 Important | 10 | 1 (store-and-forward) | 9 |
+| 🟢 Nice to have | 8 | 0 | 8 |
 
-**Minimum viable public release**: fix all 🔴 blockers. Estimated effort: 2–3 weeks of focused engineering + App Store review cycle.
+**Remaining blockers before App Store submission**: App Store metadata (screenshots, description, keywords), privacy policy hosted at a public URL, and TestFlight beta run. No further code blockers.
