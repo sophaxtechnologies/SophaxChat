@@ -173,6 +173,15 @@ public final class ChatManager: @unchecked Sendable {
 
     public weak var delegate: ChatManagerDelegate?
 
+    // MARK: - TCP transport (optional internet layer)
+
+    /// Set before calling `start()` — or swap at runtime via `startTCP` / `stopTCP`.
+    /// Nil means local BLE/WiFi mesh only.
+    public var tcpTransport: TCPTransport?
+
+    /// Our TCP address advertised in Hello bundles ("host:port"), set by AppState.
+    public var myTCPAddress: String?
+
     // MARK: - Init
 
     public init(
@@ -196,31 +205,64 @@ public final class ChatManager: @unchecked Sendable {
 
     // MARK: - Public API
 
-    /// Start advertising and browsing on the P2P mesh.
+    /// Start advertising and browsing on the P2P mesh (and TCP if configured).
     public func start() {
         mesh.start()
+        if let tcp = tcpTransport {
+            tcp.helloProvider = { [weak self] in self?.makeTCPHello() }
+            tcp.delegate = self
+            tcp.start()
+        }
         try? preKeys.rotateIfNeeded()
         scheduleExpiryTimer()
         loadPersistedQueue()
     }
 
-    /// Stop the mesh (call on app background / termination).
+    /// Stop the mesh and TCP transport (call on app background / termination).
     public func stop() {
         mesh.stop()
+        tcpTransport?.stop()
         expiryTimer?.invalidate()
         expiryTimer = nil
         persistQueue()
     }
 
+    /// Attach a TCP transport at runtime and start it immediately.
+    public func startTCP(_ transport: TCPTransport) {
+        tcpTransport?.stop()
+        tcpTransport = transport
+        transport.helloProvider = { [weak self] in self?.makeTCPHello() }
+        transport.delegate = self
+        transport.start()
+    }
+
+    /// Stop and detach the TCP transport.
+    public func stopTCP() {
+        tcpTransport?.stop()
+        tcpTransport = nil
+    }
+
+    /// Initiate an outbound TCP connection to `address` ("host:port").
+    public func connectViaTCP(address: String) throws {
+        guard let tcp = tcpTransport else { return }
+        try tcp.connect(to: address)
+    }
+
     // MARK: - Public: Identity broadcast
 
-    /// Re-broadcast our Hello (PreKeyBundle) to all currently-connected peers.
+    /// Re-broadcast our Hello (PreKeyBundle) to all currently-connected peers (mesh + TCP).
     /// Call after a username change so peers pick up the new display name.
     public func broadcastHello() {
-        guard let bundle = try? preKeys.generateBundle() else { return }
+        guard let bundle = try? preKeys.generateBundle(tcpAddress: myTCPAddress) else { return }
         let hello = HelloMessage(bundle: bundle)
         guard let wire = try? wireBuilder.build(.hello, payload: hello) else { return }
         try? mesh.broadcast(wire)
+        // Also push Hello to TCP peers — they need the refreshed bundle
+        if let tcp = tcpTransport {
+            for peerID in tcp.connectedPeerIDs {
+                try? tcp.send(wire, toPeerID: peerID)
+            }
+        }
     }
 
     // MARK: - Public: Group reactions
@@ -822,8 +864,14 @@ public final class ChatManager: @unchecked Sendable {
         toPeerID peerID: String,
         messageID: String
     ) throws {
+        // ── TCP direct path (internet / Tor) ──────────────────────────────────
+        if let tcp = tcpTransport, tcp.isConnected(peerID: peerID) {
+            try tcp.send(wire, toPeerID: peerID)
+            return
+        }
+
         if mesh.isConnected(peerID: peerID) {
-            // ── Direct path ───────────────────────────────────────────────────
+            // ── BLE/WiFi direct path ──────────────────────────────────────────
             try mesh.send(wire, toPeerID: peerID)
 
         } else if mesh.directPeerCount > 0 {
@@ -1723,6 +1771,20 @@ extension ChatManager: MeshManagerDelegate {
     public func meshManager(
         _ manager: MeshManager, didReceiveMessage message: WireMessage, fromPeer mcPeerID: String
     ) {
+        handleIncomingMessage(message)
+    }
+
+    public func meshManager(
+        _ manager: MeshManager, sendDidFailForPeer peerID: String, error: Error
+    ) {
+        delegate?.chatManager(self, didEncounterError: error)
+    }
+
+    // MARK: - Private helpers
+
+    /// Shared message dispatch — called from both MeshManagerDelegate and TCPTransportDelegate.
+    /// Verifies signatures and routes to the appropriate handler.
+    private func handleIncomingMessage(_ message: WireMessage) {
         // Verify Ed25519 signature for known peers.
         // For Hello messages the bundle contains the signing key — verified inside handleHello.
         if message.type != .hello {
@@ -1752,7 +1814,7 @@ extension ChatManager: MeshManagerDelegate {
             case .initiateSession:
                 let payload = try wireBuilder.decodePayload(InitiateSessionMessage.self, from: message)
                 // Self-authenticating: verify using the key embedded in the sender's bundle.
-                // The outer signature check above (line ~550) skips unknown senders, so
+                // The outer signature check above skips unknown senders, so
                 // initiateSession must ALWAYS verify itself — same as hello.
                 guard try WireMessageBuilder.verify(
                     message, signingKeyPublic: payload.senderBundle.signingKeyPublic
@@ -1844,14 +1906,6 @@ extension ChatManager: MeshManagerDelegate {
         }
     }
 
-    public func meshManager(
-        _ manager: MeshManager, sendDidFailForPeer peerID: String, error: Error
-    ) {
-        delegate?.chatManager(self, didEncounterError: error)
-    }
-
-    // MARK: - Private helpers
-
     /// Clamps a peer-supplied expiry date to at most `maxExpiryInterval` from now.
     /// Prevents a malicious sender from setting expiresAt = year 9999 to block cleanup.
     private func clampedExpiry(_ date: Date?) -> Date? {
@@ -1887,5 +1941,69 @@ extension ChatManager: MeshManagerDelegate {
         var states        = keychain.loadPeerSenderKeyStates(groupID: skd.groupID)
         states[peerID]    = SenderKeyState(chainKey: skd.chainKey, iteration: skd.iteration)
         try? keychain.savePeerSenderKeyStates(states, groupID: skd.groupID)
+    }
+
+    // MARK: - Private: TCP helpers
+
+    /// Build a signed Hello WireMessage to send on new TCP connections.
+    private func makeTCPHello() -> WireMessage? {
+        guard let bundle = try? preKeys.generateBundle(tcpAddress: myTCPAddress),
+              let hello  = try? wireBuilder.build(.hello, payload: HelloMessage(bundle: bundle))
+        else { return nil }
+        return hello
+    }
+}
+
+// MARK: - TCPTransportDelegate
+
+extension ChatManager: TCPTransportDelegate {
+
+    public func tcpTransport(
+        _ transport: TCPTransport, didConnectToPeer peerID: String, address: String
+    ) {
+        // Mark TCP address for this peer if we know them
+        knownPeers[peerID]?.tcpAddress       = address
+        knownPeers[peerID]?.isOnline          = true
+        knownPeers[peerID]?.isDirectlyConnected = true
+        drainQueue(forPeerID: peerID)
+        if let peer = knownPeers[peerID] {
+            let p = peer
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.chatManager(self, peerDidReconnect: p)
+            }
+        }
+    }
+
+    public func tcpTransport(
+        _ transport: TCPTransport, didDisconnectFromPeer peerID: String
+    ) {
+        knownPeers[peerID]?.isOnline            = false
+        knownPeers[peerID]?.isDirectlyConnected = false
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, peerDidDisconnect: peerID)
+        }
+    }
+
+    public func tcpTransport(
+        _ transport: TCPTransport, didReceiveMessage message: WireMessage, fromPeer peerID: String
+    ) {
+        // Route through the same dispatch logic as the mesh path.
+        handleIncomingMessage(message)
+    }
+
+    public func tcpTransport(
+        _ transport: TCPTransport, sendDidFailForPeer peerID: String, error: Error
+    ) {
+        delegate?.chatManager(self, didEncounterError: error)
+    }
+
+    public func tcpTransportDidStartListening(
+        _ transport: TCPTransport, onPort port: UInt16
+    ) {
+        #if DEBUG
+        print("[ChatManager] TCP listening on port \(port)")
+        #endif
     }
 }
