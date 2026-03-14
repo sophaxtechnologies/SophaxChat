@@ -90,107 +90,9 @@ struct GroupChatView: View {
 
             Divider()
 
-            // Reply preview bar
-            if let replying = replyingTo {
-                HStack(spacing: 10) {
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(width: 3)
-                        .clipShape(Capsule())
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(replying.direction == .sent
-                             ? "Reply to yourself"
-                             : "Reply to \(appState.displayName(forPeerID: replying.senderID ?? ""))")
-                            .font(.caption.bold())
-                            .foregroundStyle(Color.accentColor)
-                        Text(replying.body)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    Button { withAnimation { replyingTo = nil } } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(.bar)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+            replyPreviewBar
 
-            // Input bar
-            HStack(spacing: 10) {
-                // Attachment button
-                PhotosPicker(selection: $photoPickerItem, matching: .images) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.secondary)
-                }
-                .onChange(of: photoPickerItem) { _, item in
-                    guard let item else { return }
-                    Task {
-                        if let data = try? await item.loadTransferable(type: Data.self),
-                           let image = UIImage(data: data) {
-                            let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
-                            appState.sendGroupImage(image, group: group, expiresAt: expiresAt, replyToID: replyingTo?.id)
-                            replyingTo = nil
-                        }
-                        photoPickerItem = nil
-                    }
-                }
-
-                // Hold-to-record PTT button
-                ZStack {
-                    Circle()
-                        .fill(voiceRecorder.isRecording ? Color.red.opacity(0.15) : Color.clear)
-                        .frame(width: 36, height: 36)
-                        .animation(.easeInOut(duration: 0.2), value: voiceRecorder.isRecording)
-                    Image(systemName: voiceRecorder.isRecording ? "waveform" : "mic")
-                        .font(.system(size: 20))
-                        .foregroundStyle(voiceRecorder.isRecording ? .red : .secondary)
-                        .symbolEffect(.pulse, isActive: voiceRecorder.isRecording)
-                }
-                .frame(width: 36, height: 36)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { _ in
-                            guard !voiceRecorder.isRecording else { return }
-                            voiceRecorder.start()
-                        }
-                        .onEnded { _ in
-                            voiceRecorder.stop { data, duration in
-                                guard let data, duration > 0.5 else { return }
-                                let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
-                                appState.sendGroupAudio(data, duration: duration, group: group,
-                                                        expiresAt: expiresAt, replyToID: replyingTo?.id)
-                                replyingTo = nil
-                            }
-                        }
-                )
-
-                TextField("Message", text: $messageText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.body)
-                    .lineLimit(1...6)
-                    .focused($isInputFocused)
-
-                if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 30))
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .animation(.easeInOut(duration: 0.15),
-                       value: !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.bar)
+            inputBar
         }
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -256,6 +158,112 @@ struct GroupChatView: View {
         } message: {
             Text("You will no longer receive messages from this group. This cannot be undone.")
         }
+    }
+
+    // MARK: - Sub-views (extracted to keep body type-checkable)
+
+    @ViewBuilder
+    private var replyPreviewBar: some View {
+        if let replying = replyingTo {
+            HStack(spacing: 10) {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(width: 3)
+                    .clipShape(Capsule())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(replying.direction == .sent
+                         ? "Reply to yourself"
+                         : "Reply to \(appState.displayName(forPeerID: replying.senderID ?? ""))")
+                        .font(.caption.bold())
+                        .foregroundStyle(Color.accentColor)
+                    Text(replying.body)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button { withAnimation { replyingTo = nil } } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.bar)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder
+    private var pttButton: some View {
+        ZStack {
+            Circle()
+                .fill(voiceRecorder.isRecording ? Color.red.opacity(0.15) : Color.clear)
+                .frame(width: 36, height: 36)
+                .animation(.easeInOut(duration: 0.2), value: voiceRecorder.isRecording)
+            Image(systemName: voiceRecorder.isRecording ? "waveform" : "mic")
+                .font(.system(size: 20))
+                .foregroundStyle(voiceRecorder.isRecording ? .red : .secondary)
+                .symbolEffect(.pulse, isActive: voiceRecorder.isRecording)
+        }
+        .frame(width: 36, height: 36)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard !voiceRecorder.isRecording else { return }
+                    voiceRecorder.start()
+                }
+                .onEnded { _ in
+                    voiceRecorder.stop { data, duration in
+                        guard let data, duration > 0.5 else { return }
+                        let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
+                        appState.sendGroupAudio(data, duration: duration, group: group,
+                                                expiresAt: expiresAt, replyToID: replyingTo?.id)
+                        replyingTo = nil
+                    }
+                }
+        )
+    }
+
+    private var inputBar: some View {
+        let isTextNonEmpty = !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(spacing: 10) {
+            PhotosPicker(selection: $photoPickerItem, matching: .images) {
+                Image(systemName: "photo")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.secondary)
+            }
+            .onChange(of: photoPickerItem) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        let expiresAt = disappearingInterval.seconds.map { Date().addingTimeInterval($0) }
+                        appState.sendGroupImage(image, group: group, expiresAt: expiresAt, replyToID: replyingTo?.id)
+                        replyingTo = nil
+                    }
+                    photoPickerItem = nil
+                }
+            }
+            pttButton
+            TextField("Message", text: $messageText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .lineLimit(1...6)
+                .focused($isInputFocused)
+            if isTextNonEmpty {
+                Button(action: sendMessage) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: isTextNonEmpty)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
     }
 
     private func sendMessage() {
