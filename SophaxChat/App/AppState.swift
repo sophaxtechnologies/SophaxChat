@@ -39,6 +39,33 @@ final class AppState: ObservableObject {
     /// peerID → true when their session was established without a one-time prekey (reduced entropy).
     @Published var noOPKSessions: Set<String> = []
 
+    // MARK: - TCP / internet mode
+
+    /// Whether the TCP internet transport is active.
+    @Published var tcpEnabled: Bool = false {
+        didSet { applyTCPConfig(); UserDefaults.standard.set(tcpEnabled, forKey: tcpEnabledKey) }
+    }
+    /// Local listen port (default 25519).
+    @Published var tcpPort: String = "25519" {
+        didSet { applyTCPConfig(); UserDefaults.standard.set(tcpPort, forKey: tcpPortKey) }
+    }
+    /// Optional SOCKS5 proxy for Tor ("host:port", e.g. "127.0.0.1:9050").
+    @Published var tcpSocksProxy: String = "" {
+        didSet { applyTCPConfig(); UserDefaults.standard.set(tcpSocksProxy, forKey: tcpSocksProxyKey) }
+    }
+    /// User-entered public address ("IP:port") included in Hello so peers learn our internet address.
+    @Published var myTCPAddress: String = "" {
+        didSet {
+            chatManager?.myTCPAddress = myTCPAddress.isEmpty ? nil : myTCPAddress
+            UserDefaults.standard.set(myTCPAddress, forKey: tcpAddressKey)
+        }
+    }
+
+    private let tcpEnabledKey    = "com.sophax.tcp.enabled"
+    private let tcpPortKey       = "com.sophax.tcp.port"
+    private let tcpSocksProxyKey = "com.sophax.tcp.socksProxy"
+    private let tcpAddressKey    = "com.sophax.tcp.address"
+
     /// Set to a peer that just came back online; triggers reconnect banner in UI.
     @Published var reconnectedPeer: KnownPeer? = nil
 
@@ -59,6 +86,7 @@ final class AppState: ObservableObject {
         loadAliases()
         loadGroups()
         loadVerifiedPeers()
+        loadTCPSettings()
         if keychain.hasIdentity() {
             setupChatManager(username: nil)
         }
@@ -89,8 +117,10 @@ final class AppState: ObservableObject {
                 attachmentStore: attachStore,
                 keychain:        keychain
             )
-            manager.delegate = self
+            manager.delegate      = self
+            manager.myTCPAddress  = myTCPAddress.isEmpty ? nil : myTCPAddress
             manager.start()
+            if tcpEnabled { startTCPTransport(on: manager) }
 
             self.chatManager     = manager
             self.isSetupComplete = true
@@ -392,6 +422,13 @@ final class AppState: ObservableObject {
         return pinned != currentSafetyNumber
     }
 
+    // MARK: - TCP internet mode
+
+    /// Initiate an outbound TCP connection to a peer at "host:port".
+    func connectViaTCP(address: String) {
+        try? chatManager?.connectViaTCP(address: address)
+    }
+
     // MARK: - App lock
 
     var appLockEnabled: Bool {
@@ -447,6 +484,36 @@ final class AppState: ObservableObject {
             ($0.receivedAt ?? $0.timestamp) < ($1.receivedAt ?? $1.timestamp)
         }
         messages[message.peerID] = existing
+    }
+
+    // MARK: - TCP persistence + lifecycle
+
+    private func loadTCPSettings() {
+        let ud = UserDefaults.standard
+        tcpEnabled    = ud.bool(forKey: tcpEnabledKey)
+        tcpPort       = ud.string(forKey: tcpPortKey)       ?? "25519"
+        tcpSocksProxy = ud.string(forKey: tcpSocksProxyKey) ?? ""
+        myTCPAddress  = ud.string(forKey: tcpAddressKey)    ?? ""
+    }
+
+    private func makeTCPConfig() -> TCPTransport.Config {
+        let port  = UInt16(tcpPort) ?? 25519
+        let proxy = tcpSocksProxy.trimmingCharacters(in: .whitespaces)
+        return TCPTransport.Config(port: port, socksProxy: proxy.isEmpty ? nil : proxy)
+    }
+
+    private func startTCPTransport(on manager: ChatManager) {
+        let transport = TCPTransport(config: makeTCPConfig())
+        manager.startTCP(transport)
+    }
+
+    private func applyTCPConfig() {
+        guard let manager = chatManager else { return }
+        if tcpEnabled {
+            startTCPTransport(on: manager)
+        } else {
+            manager.stopTCP()
+        }
     }
 
     // MARK: - Peer persistence
