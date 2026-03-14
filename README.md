@@ -408,7 +408,7 @@ See [SECURITY.md § Security Review Findings](SECURITY.md) for full details. Key
 
 ### Responsible Disclosure
 
-Do not open public issues for security bugs. Contact **security@sophax.com**. We aim to respond within 72 hours. Coordinated disclosure window: 90 days.
+Do not open public issues for security bugs.
 
 ---
 
@@ -483,7 +483,7 @@ Pull requests are welcome. Before contributing:
 MIT — see [LICENSE](LICENSE).
 
 ```
-Copyright (c) 2025 Sophax Technologies
+Copyright (c) 2026 Sophax Technologies
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
