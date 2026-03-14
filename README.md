@@ -3,7 +3,7 @@
 
   <h1>SophaxChat</h1>
 
-  <p><strong>Signal-grade encryption. No servers. No accounts. No internet.</strong></p>
+  <p><strong>Signal-grade encryption. No servers. No accounts. Mesh-first, internet-optional.</strong></p>
 
   <p>
     <img src="https://img.shields.io/badge/Swift-6.2-FA7343?logo=swift&logoColor=white" />
@@ -34,15 +34,22 @@
 
 ## What is SophaxChat?
 
-SophaxChat is an **open-source, infrastructure-free, end-to-end encrypted** messenger for iOS and macOS. It works over Bluetooth LE and WiFi Direct — no internet required, no servers, no phone number, no account.
+SophaxChat is an **open-source, infrastructure-free, end-to-end encrypted** messenger for iOS and macOS. It works over Bluetooth LE and WiFi Direct by default — no internet required, no servers, no phone number, no account.
+
+When you need to reach someone across the world, an optional TCP transport lets you connect peer-to-peer over the internet (or anonymously through Tor). The cryptographic layer is identical regardless of transport — end-to-end encrypted, authenticated, and forward-secret at all times.
 
 Every message is protected by the **Signal Protocol** (X3DH + Double Ratchet with Header Encryption). Your identity is nothing more than a cryptographic key pair generated on your device.
+
+> **Is it still "Anonymous, offline, end-to-end encrypted mesh chat"?**
+> Yes — and more. Local mode (BLE/WiFi) is fully offline and anonymous as always. With TCP enabled, it becomes *global*: still anonymous (no account, no phone number), still end-to-end encrypted (same X3DH + Double Ratchet pipeline), still decentralized (no servers — direct peer-to-peer TCP). TCP and Tor support are optional and off by default.
 
 ### Why does it exist?
 
 | Scenario | Signal | bitchat | SophaxChat |
 |---|:---:|:---:|:---:|
-| No internet connection | ❌ | ✅ | ✅ |
+| No internet connection (BLE/WiFi mesh) | ❌ | ✅ | ✅ |
+| Internet reach (TCP, peer-to-peer) | ✅ | ❌ | ✅ |
+| Tor / anonymity network support | ⚠️ | ❌ | ✅ |
 | No phone number required | ❌ | ✅ | ✅ |
 | Signal-grade forward secrecy | ✅ | ❌ | ✅ |
 | Per-session unique keys (X3DH) | ✅ | ❌ | ✅ |
@@ -231,6 +238,8 @@ All private keys and session states are stored in the **iOS Keychain** with `kSe
 |---|---|
 | Bluetooth LE transport | ✅ |
 | WiFi Direct transport | ✅ |
+| TCP internet transport (peer-to-peer, no server) | ✅ |
+| Tor / SOCKS5 anonymity (Orbot VPN mode or proxy) | ✅ |
 | Multihop relay (TTL=6) | ✅ |
 | LRU relay deduplication | ✅ |
 | Offline message queue | ✅ |
@@ -258,7 +267,8 @@ SophaxChat/
 │   │   └── GroupTypes.swift        # GroupInfo, SenderKeyState, SenderKeyDistributionMessage
 │   ├── Network/
 │   │   ├── NetworkProtocol.swift   # Wire message types + WireMessageBuilder
-│   │   ├── MeshManager.swift       # MultipeerConnectivity P2P transport
+│   │   ├── MeshManager.swift       # MultipeerConnectivity P2P transport (BLE/WiFi)
+│   │   ├── TCPTransport.swift      # Internet TCP transport (SOCKS5/Tor, port 25519)
 │   │   └── RelayRouter.swift       # Multihop relay with LRU dedup cache
 │   ├── Storage/
 │   │   ├── MessageStore.swift      # AES-256-GCM encrypted at-rest storage
@@ -295,7 +305,8 @@ ChatManager                  ← single coordinator, NSLock session mutex
     │   ├─ buildOutboundWire()   ← X3DH init (new session) or DR+HE encrypt
     │   ├─ sealedSenderWrap()    ← ECDH(ephemeral, recipientDH) → ChaChaPoly
     │   └─ sendOrQueue()
-    │           ├─ mesh.send()           if peer directly connected
+    │           ├─ tcp.send()            if peer connected via TCP/internet
+    │           ├─ mesh.send()           if peer directly connected (BLE/WiFi)
     │           ├─ mesh.broadcast()      relay via RelayEnvelope (TTL=6)
     │           └─ pendingQueue[]        offline; drained on reconnect
     │
@@ -380,7 +391,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model, cryptographic primitiv
 
 | Threat | Protection |
 |---|---|
-| Network eavesdropping | ChaCha20-Poly1305 E2EE; transport also encrypted (MPC `.required`) |
+| Network eavesdropping | ChaCha20-Poly1305 E2EE; MPC transport encrypted (`.required`); TCP is a carrier of already-sealed WireMessages |
 | MITM / impersonation | Ed25519 signatures on every message; Safety Number verification |
 | Replay attacks | Unique nonce per message; message-ID deduplication at storage layer |
 | Past message compromise | Forward secrecy via symmetric ratchet (per-message keys) |
@@ -461,6 +472,8 @@ Do not open public issues for security bugs.
 - [x] Background operation — `bluetooth-central` + `bluetooth-peripheral` background modes declared; `BGAppRefreshTask` registered (`com.sophax.mesh-refresh`) to restart the mesh briefly after iOS suspends the process and drain any pending queues. MPC sessions survive for several minutes after backgrounding with BLE background modes alone.
 - [x] Channel discovery — `ChannelAnnouncement` wire message type added. Group creators broadcast signed announcements to all nearby peers (1 hop). Non-members see a "Nearby Channels" section in the conversation list; they can contact the creator to request an invite.
 - [x] Pluggable transport adapter — `MessageTransport` protocol defined in `Network/MessageTransport.swift`. `MeshManager` is the production implementation (MultipeerConnectivity). Future adapters (LoRa, acoustic covert channel) implement the same `start/stop/send/broadcast/isConnected` surface. Adapter stubs and specification notes are in the protocol file.
+- [x] TCP internet transport — `TCPTransport.swift` (Network.framework, iOS 17+). 4-byte length-prefix framing, Hello exchange on connect, SOCKS5/Tor proxy support. ChatManager routes to TCP first when the peer is connected, falling back to BLE/WiFi mesh. Off by default; toggled in Settings under "Internet Mode".
+- [x] Internet mode Settings UI — TCP toggle, port field, public address entry ("My Address"), SOCKS5 proxy field, direct connect button (enter peer's host:port).
 
 ### Seeking external support
 
