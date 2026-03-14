@@ -79,6 +79,10 @@ struct RatchetSessionState: Codable {
 
 // MARK: - Double Ratchet
 
+// Threading contract: a DoubleRatchet session is NOT thread-safe. Each session
+// instance must be accessed from a single thread or under external mutual exclusion.
+// ChatManager serializes all encrypt/decrypt calls through its internal dispatch queue
+// (via `withSession`). Never share a session instance across concurrent callers.
 public final class DoubleRatchet: @unchecked Sendable {
 
     private var state: RatchetSessionState

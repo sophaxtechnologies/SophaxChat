@@ -31,6 +31,10 @@ public protocol MeshManagerDelegate: AnyObject {
 // (Bluetooth LE + WiFi Direct). Future transports (LoRa, audio covert channel)
 // will expose the same surface — see MessageTransport.swift for the protocol.
 
+// Threading contract: MCSessionDelegate and MCNearbyServiceBrowserDelegate callbacks
+// arrive on MPC's internal queue. All delegate calls are re-dispatched to
+// `DispatchQueue.main` before being forwarded to MessageTransportDelegate. Public
+// methods (send, broadcast, start, stop) must be called from the main thread.
 public final class MeshManager: NSObject, @unchecked Sendable {
 
     // Lowercase, ≤ 15 chars, [a-z0-9\-] only

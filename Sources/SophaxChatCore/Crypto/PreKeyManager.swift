@@ -55,6 +55,9 @@ public struct PreKeyBundle: Codable, Sendable {
 
 // MARK: - Prekey Manager
 
+// Threading contract: all calls must be made from a single thread or under external
+// mutual exclusion. ChatManager owns the single instance and accesses it on its
+// serial dispatch queue.
 public final class PreKeyManager: @unchecked Sendable {
 
     private let keychain: KeychainManager

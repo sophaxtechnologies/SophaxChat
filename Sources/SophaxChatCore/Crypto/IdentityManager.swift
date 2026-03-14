@@ -13,6 +13,10 @@
 import Foundation
 import CryptoKit
 
+// Threading contract: all calls must happen on the same (main) thread or under
+// external mutual exclusion. The class holds mutable state (cached public identity)
+// that is not internally synchronized. In practice, ChatManager owns the single
+// IdentityManager instance and accesses it serially on its dispatch queue.
 public final class IdentityManager: @unchecked Sendable {
 
     // MARK: - Public Identity (safe to share)

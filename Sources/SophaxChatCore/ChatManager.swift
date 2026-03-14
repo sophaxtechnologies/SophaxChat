@@ -101,6 +101,9 @@ public protocol ChatManagerDelegate: AnyObject {
     /// A nearby peer is advertising a group that the local user is not a member of.
     /// The delegate can surface this in a "Nearby channels" list.
     func chatManager(_ manager: ChatManager, didDiscoverChannel announcement: ChannelAnnouncement)
+    /// A group message we sent was acknowledged by `peerID` (they decrypted it successfully).
+    func chatManager(_ manager: ChatManager, groupMessageDelivered messageID: String,
+                     inGroup groupID: String, byPeer peerID: String)
 }
 
 // MARK: - ChatManager
@@ -1494,10 +1497,30 @@ public final class ChatManager: @unchecked Sendable {
             receivedAt:         Date()
         )
         try? messageStore.append(message: stored)
+
+        // Send a read receipt back to the original sender so they can track delivery.
+        // Best-effort: if we have no path to the sender yet, the receipt is silently dropped.
+        let receiptPayload = GroupReadReceiptMessage(groupID: payload.groupID, targetMessageID: payload.messageID)
+        if let receipt = try? wireBuilder.build(.groupReadReceipt, payload: receiptPayload) {
+            try? sendOrQueue(receipt, toPeerID: payload.senderPeerID, messageID: UUID().uuidString)
+        }
+
         let groupID = payload.groupID
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.chatManager(self, didReceiveGroupMessage: stored, inGroup: groupID)
+        }
+    }
+
+    private func handleGroupReadReceipt(_ payload: GroupReadReceiptMessage, fromPeer peerID: String) {
+        let convID = "group.\(payload.groupID)"
+        try? messageStore.addDeliveredBy(peerID, forMessageID: payload.targetMessageID, convID: convID)
+        let messageID = payload.targetMessageID
+        let groupID   = payload.groupID
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.chatManager(self, groupMessageDelivered: messageID,
+                                       inGroup: groupID, byPeer: peerID)
         }
     }
 
@@ -1593,11 +1616,18 @@ public final class ChatManager: @unchecked Sendable {
             let payload = try wireBuilder.decodePayload(GroupMemberLeftMessage.self, from: message)
             handleGroupMemberLeft(payload)
 
+        case .groupReadReceipt:
+            let payload = try wireBuilder.decodePayload(GroupReadReceiptMessage.self, from: message)
+            handleGroupReadReceipt(payload, fromPeer: message.senderID)
+
         case .storeAndForward, .storeAndForwardDelivery:
             break   // S&F is direct-only; relay nodes must not forward these
 
         case .relay, .typing:
             break   // No relay-of-relay; typing over relay has no value
+
+        case .channelAnnouncement:
+            break   // Channel announcements are broadcast-only; not forwarded via relay
         }
     }
 
@@ -1756,6 +1786,10 @@ extension ChatManager: MeshManagerDelegate {
             case .groupMemberLeft:
                 let payload = try wireBuilder.decodePayload(GroupMemberLeftMessage.self, from: message)
                 handleGroupMemberLeft(payload)
+
+            case .groupReadReceipt:
+                let payload = try wireBuilder.decodePayload(GroupReadReceiptMessage.self, from: message)
+                handleGroupReadReceipt(payload, fromPeer: message.senderID)
 
             case .storeAndForward:
                 let payload = try wireBuilder.decodePayload(StoreAndForwardRequest.self, from: message)

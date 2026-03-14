@@ -18,6 +18,9 @@
 import Foundation
 import CryptoKit
 
+// Threading contract: all public methods must be called from a single thread or
+// under external mutual exclusion. ChatManager owns the sole instance and accesses
+// it on the main thread. The internal `queue` is used only for async disk I/O.
 public final class MessageStore: @unchecked Sendable {
 
     private let storageKey: SymmetricKey
@@ -84,6 +87,19 @@ public final class MessageStore: @unchecked Sendable {
         messages[idx].reactions = reactions.isEmpty ? nil : reactions
         cache[peerID] = messages
         try saveToDisk(messages: messages, peerID: peerID)
+    }
+
+    /// Append `peerID` to the `deliveredBy` set of a group message.
+    /// No-op if the peerID is already present. Idempotent.
+    public func addDeliveredBy(_ delivererID: String, forMessageID messageID: String, convID: String) throws {
+        var messages = (try? self.messages(forPeer: convID)) ?? []
+        guard let idx = messages.firstIndex(where: { $0.id == messageID }) else { return }
+        var set = messages[idx].deliveredBy ?? []
+        guard !set.contains(delivererID) else { return }
+        set.append(delivererID)
+        messages[idx].deliveredBy = set
+        cache[convID] = messages
+        try saveToDisk(messages: messages, peerID: convID)
     }
 
     /// Update message status (sent → delivered, sending → failed, etc.).

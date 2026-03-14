@@ -197,6 +197,23 @@ public final class KeychainManager {
         SecItemDelete(q2 as CFDictionary)
     }
 
+    // MARK: - Verified Peers (Safety Number pinning)
+
+    /// Persist the peerID → safetyNumber map in the Keychain so verification
+    /// state survives app restarts without being readable from UserDefaults backups.
+    public func saveVerifiedPeers(_ peers: [String: String]) throws {
+        let data = try JSONEncoder().encode(peers)
+        try save(data: data, account: "verified.peers")
+    }
+
+    /// Returns the persisted peerID → safetyNumber map, or [:] if none stored yet.
+    public func loadVerifiedPeers() -> [String: String] {
+        guard let data  = try? load(account: "verified.peers"),
+              let peers = try? JSONDecoder().decode([String: String].self, from: data)
+        else { return [:] }
+        return peers
+    }
+
     // MARK: - Existence Check
 
     public func hasIdentity() -> Bool {

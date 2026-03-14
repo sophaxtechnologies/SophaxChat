@@ -14,6 +14,9 @@
 
 import Foundation
 
+// Threading: RelayRouter is internally thread-safe — all mutable state is protected
+// by `lock` (NSLock). It is @unchecked Sendable only because NSLock is not Sendable
+// in the Swift 6 type system; the implementation is safe for concurrent use.
 public final class RelayRouter: @unchecked Sendable {
 
     private let maxSeen: Int

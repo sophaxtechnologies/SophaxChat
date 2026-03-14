@@ -509,18 +509,26 @@ final class AppState: ObservableObject {
 
     // MARK: - Verified peers persistence
 
-    private let verifiedPeersKey = "com.sophax.verifiedPeers"
-
     private func loadVerifiedPeers() {
-        guard let data  = UserDefaults.standard.data(forKey: verifiedPeersKey),
-              let saved = try? JSONDecoder().decode([String: String].self, from: data) else { return }
-        verifiedPeers = saved
+        // Primary: Keychain (device-local, excluded from iCloud backup)
+        let fromKeychain = keychain.loadVerifiedPeers()
+        if !fromKeychain.isEmpty {
+            verifiedPeers = fromKeychain
+            return
+        }
+        // One-time migration from UserDefaults → Keychain
+        let legacyKey = "com.sophax.verifiedPeers"
+        if let data  = UserDefaults.standard.data(forKey: legacyKey),
+           let saved = try? JSONDecoder().decode([String: String].self, from: data),
+           !saved.isEmpty {
+            verifiedPeers = saved
+            try? keychain.saveVerifiedPeers(saved)
+            UserDefaults.standard.removeObject(forKey: legacyKey)
+        }
     }
 
     private func saveVerifiedPeers() {
-        if let data = try? JSONEncoder().encode(verifiedPeers) {
-            UserDefaults.standard.set(data, forKey: verifiedPeersKey)
-        }
+        try? keychain.saveVerifiedPeers(verifiedPeers)
     }
 }
 
@@ -687,5 +695,17 @@ extension AppState: @preconcurrency ChatManagerDelegate {
         let alreadyMember = groups.contains { $0.id == announcement.groupID }
         guard !alreadyMember, announcement.creatorID != myID else { return }
         discoveredChannels[announcement.groupID] = announcement
+    }
+
+    func chatManager(_ manager: ChatManager, groupMessageDelivered messageID: String,
+                     inGroup groupID: String, byPeer peerID: String) {
+        let convID = "group.\(groupID)"
+        guard var msgs = messages[convID],
+              let idx  = msgs.firstIndex(where: { $0.id == messageID }) else { return }
+        var set = msgs[idx].deliveredBy ?? []
+        guard !set.contains(peerID) else { return }
+        set.append(peerID)
+        msgs[idx].deliveredBy = set
+        messages[convID] = msgs
     }
 }

@@ -437,12 +437,15 @@ private struct GroupMessageBubble: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                     if isSent {
-                        Image(systemName: "checkmark")
+                        let delivered  = message.deliveredBy?.count ?? 0
+                        let total      = max(group.memberIDs.count - 1, 1)
+                        let allDelivered = delivered >= total
+                        Image(systemName: allDelivered ? "checkmark.circle.fill" : "checkmark.circle")
                             .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                        Text("→ \(group.memberIDs.count - 1)")
+                            .foregroundStyle(allDelivered ? Color.accentColor : .tertiary)
+                        Text("\(delivered)/\(total)")
                             .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(allDelivered ? Color.accentColor : .tertiary)
                     }
                 }
             }

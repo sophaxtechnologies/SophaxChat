@@ -10,6 +10,9 @@
 import Foundation
 import CryptoKit
 
+// Threading contract: all public methods must be called from a single thread or
+// under external mutual exclusion. ChatManager owns the sole instance and accesses
+// it on the main thread (or within a locked section).
 public final class AttachmentStore: @unchecked Sendable {
 
     private let storageKey: SymmetricKey

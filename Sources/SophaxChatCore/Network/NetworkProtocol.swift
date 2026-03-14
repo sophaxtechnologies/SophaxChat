@@ -57,6 +57,13 @@ public struct WireMessage: Codable, Sendable {
         self.signature = signature
     }
 
+    /// Cached formatter — `ISO8601DateFormatter` is expensive to allocate and is
+    /// called on every sign/verify path. Shared across all WireMessage instances.
+    /// `nonisolated(unsafe)`: ISO8601DateFormatter.string(from:) is thread-safe
+    /// for concurrent reads when the formatter's own properties are never mutated
+    /// after initialization — which is the case here.
+    private nonisolated(unsafe) static let iso8601 = ISO8601DateFormatter()
+
     /// Canonical byte representation that is signed/verified.
     /// MUST be deterministic — no Date() call here.
     public func signingBytes() -> Data {
@@ -64,8 +71,7 @@ public struct WireMessage: Codable, Sendable {
         data.append(contentsOf: type.rawValue.utf8)
         data.append(payload)
         data.append(contentsOf: senderID.utf8)
-        // ISO 8601 is deterministic for a fixed Date value
-        data.append(contentsOf: ISO8601DateFormatter().string(from: timestamp).utf8)
+        data.append(contentsOf: WireMessage.iso8601.string(from: timestamp).utf8)
         return data
     }
 }
@@ -97,6 +103,8 @@ public enum WireMessageType: String, Codable, Sendable {
     case groupReaction
     /// A member voluntarily left a group — triggers sender-key rotation in remaining members.
     case groupMemberLeft
+    /// Read receipt for a specific group message — unicast from receiver to original sender.
+    case groupReadReceipt
     /// Request a directly-connected relay peer to hold a sealed message for an offline target.
     case storeAndForward
     /// Relay peer delivers stored messages when the target peer comes online.
@@ -343,6 +351,20 @@ public struct GroupReactionMessage: Codable, Sendable {
     }
 }
 
+// MARK: - Group Read Receipt
+
+/// Unicast from a group message recipient back to the original sender.
+/// Lets the sender track how many / which group members have received the message.
+public struct GroupReadReceiptMessage: Codable, Sendable {
+    public let groupID:          String
+    public let targetMessageID:  String
+
+    public init(groupID: String, targetMessageID: String) {
+        self.groupID         = groupID
+        self.targetMessageID = targetMessageID
+    }
+}
+
 // MARK: - Reaction
 
 /// Sent when a peer reacts to (or removes a reaction from) one of your messages.
@@ -488,6 +510,9 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
     /// Used for display ordering instead of sender-supplied `timestamp` (which can be spoofed).
     /// Nil for messages stored before this field was added (backward compat).
     public let receivedAt:         Date?
+    /// Group messages only: peerIDs that have sent a groupReadReceipt back to us.
+    /// Nil for direct messages and for messages received before this field was added.
+    public var deliveredBy:        [String]?
 
     public enum Direction: String, Codable, Sendable {
         case sent, received
@@ -512,7 +537,8 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
         audioDuration:      Double?         = nil,
         reactions:          [String: String]? = nil,
         senderID:           String?         = nil,
-        receivedAt:         Date?           = nil
+        receivedAt:         Date?           = nil,
+        deliveredBy:        [String]?       = nil
     ) {
         self.id                 = id
         self.peerID             = peerID
@@ -529,6 +555,7 @@ public struct StoredMessage: Codable, Identifiable, Sendable {
         self.reactions          = reactions
         self.senderID           = senderID
         self.receivedAt         = receivedAt
+        self.deliveredBy        = deliveredBy
     }
 }
 
