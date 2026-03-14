@@ -97,6 +97,10 @@ public enum WireMessageType: String, Codable, Sendable {
     case groupReaction
     /// A member voluntarily left a group — triggers sender-key rotation in remaining members.
     case groupMemberLeft
+    /// Request a directly-connected relay peer to hold a sealed message for an offline target.
+    case storeAndForward
+    /// Relay peer delivers stored messages when the target peer comes online.
+    case storeAndForwardDelivery
 }
 
 // MARK: - Hello (Handshake)
@@ -507,6 +511,49 @@ public struct GroupMemberLeftMessage: Codable, Sendable {
         self.groupID            = groupID
         self.leavingPeerID      = leavingPeerID
         self.remainingMemberIDs = remainingMemberIDs
+    }
+}
+
+// MARK: - Store-and-Forward
+
+/// Sent by Alice to a directly-connected relay peer Bob: "Please hold this sealed
+/// message for Carol until she connects to you."
+///
+/// The inner message is sealed (ChaCha20-Poly1305) for Carol's DH key, so Bob
+/// cannot read it. Bob stores it until Carol's peerID appears in a Hello handshake,
+/// then delivers via `.storeAndForwardDelivery`.
+public struct StoreAndForwardRequest: Codable, Sendable {
+    /// The final recipient's peerID.
+    public let targetPeerID: String
+    /// Stable dedup ID (same as the inner WireMessage's correlation ID).
+    public let messageID: String
+    /// Pre-sealed WireMessage addressed to `targetPeerID`.
+    public let sealed: SealedMessage
+    /// Relay peer drops this item after `expiresAt` to bound storage use.
+    public let expiresAt: Date
+
+    public init(targetPeerID: String, messageID: String, sealed: SealedMessage, expiresAt: Date) {
+        self.targetPeerID = targetPeerID
+        self.messageID    = messageID
+        self.sealed       = sealed
+        self.expiresAt    = expiresAt
+    }
+}
+
+/// Sent by a relay peer Bob to Carol once she connects: delivers all stored items.
+public struct StoreAndForwardDelivery: Codable, Sendable {
+    public let items: [StoreAndForwardItem]
+
+    public init(items: [StoreAndForwardItem]) { self.items = items }
+}
+
+public struct StoreAndForwardItem: Codable, Sendable {
+    public let messageID: String
+    public let sealed: SealedMessage
+
+    public init(messageID: String, sealed: SealedMessage) {
+        self.messageID = messageID
+        self.sealed    = sealed
     }
 }
 

@@ -145,6 +145,23 @@ public final class ChatManager: @unchecked Sendable {
 
     private let pendingQueueFileName = "pending_queue"
 
+    /// In-memory cache of message keys for group messages that arrived out of order.
+    /// Key: "groupID/senderPeerID" → (senderKeyIteration → messageKey)
+    /// Bounded to `maxSkippedKeysCacheSize` entries per sender; oldest are evicted first.
+    private var skippedGroupMessageKeys: [String: [UInt32: SymmetricKey]] = [:]
+    private static let maxSkippedKeysCacheSize = 200
+
+    /// Messages stored on behalf of offline peers (relay-store role).
+    private struct StoredForwardItem {
+        let targetPeerID: String
+        let messageID:    String
+        let sealed:       SealedMessage
+        let expiresAt:    Date
+    }
+    private var storedForwardItems: [StoredForwardItem] = []
+    private static let maxStoredForwardItems  = 300
+    private static let storeAndForwardTTL: TimeInterval = 48 * 60 * 60   // 48 hours
+
     /// Fires every 60 seconds to purge messages whose expiresAt has passed.
     private var expiryTimer: Timer?
 
@@ -237,6 +254,8 @@ public final class ChatManager: @unchecked Sendable {
 
     private func purgeExpiredMessages() {
         messageStore.deleteExpiredMessages()
+        let now = Date()
+        storedForwardItems.removeAll { $0.expiresAt <= now }
     }
 
     /// Maximum text message body length in UTF-8 bytes.
@@ -692,8 +711,10 @@ public final class ChatManager: @unchecked Sendable {
             // Only the intended recipient can decrypt; relay nodes see only
             // the ephemeral public key and opaque ciphertext.
             let innerWire: WireMessage
+            var sealedForTarget: SealedMessage? = nil
             if let peer = knownPeers[peerID] {
-                let sealed    = try sealWireMessage(wire, recipientDHPublicKey: peer.dhKeyPublic)
+                let sealed = try sealWireMessage(wire, recipientDHPublicKey: peer.dhKeyPublic)
+                sealedForTarget = sealed
                 innerWire = try wireBuilder.build(.sealed, payload: sealed)
             } else {
                 innerWire = wire    // Unknown peer — fallback to plaintext relay
@@ -709,6 +730,22 @@ public final class ChatManager: @unchecked Sendable {
             )
             let relayWire = try wireBuilder.build(.relay, payload: envelope)
             try mesh.broadcast(relayWire)
+
+            // ── Store-and-forward: also ask relay peers to hold the message ───
+            // If the target is not currently in the mesh, at least one relay peer
+            // may later encounter them. Re-uses the sealed message already produced
+            // above so no extra crypto is needed.
+            if let sf = sealedForTarget {
+                let sfReq = StoreAndForwardRequest(
+                    targetPeerID: peerID,
+                    messageID:    messageID,
+                    sealed:       sf,
+                    expiresAt:    Date().addingTimeInterval(Self.storeAndForwardTTL)
+                )
+                if let sfWire = try? wireBuilder.build(.storeAndForward, payload: sfReq) {
+                    try? mesh.broadcast(sfWire)
+                }
+            }
 
         } else {
             // ── No connectivity: queue for later ──────────────────────────────
@@ -814,6 +851,9 @@ public final class ChatManager: @unchecked Sendable {
 
         // Peer's bundle is now known — drain any messages queued before Hello arrived
         drainQueue(forPeerID: peerID)
+
+        // Deliver any messages we were holding for this peer (store-and-forward relay role)
+        deliverStoredForwardItems(toPeerID: peerID)
     }
 
     private func handleInitiateSession(_ payload: InitiateSessionMessage) throws {
@@ -1075,6 +1115,68 @@ public final class ChatManager: @unchecked Sendable {
         }
     }
 
+    // MARK: - Store-and-forward handlers
+
+    /// A connected peer asks us to hold a sealed message for an offline third party.
+    private func handleStoreAndForward(_ payload: StoreAndForwardRequest) {
+        guard payload.expiresAt > Date() else { return }
+        // Dedup
+        guard !storedForwardItems.contains(where: { $0.messageID == payload.messageID }) else { return }
+
+        // If target is currently connected to us, deliver immediately
+        if mesh.isConnected(peerID: payload.targetPeerID) {
+            let delivery = StoreAndForwardDelivery(
+                items: [StoreAndForwardItem(messageID: payload.messageID, sealed: payload.sealed)]
+            )
+            if let wire = try? wireBuilder.build(.storeAndForwardDelivery, payload: delivery) {
+                try? mesh.send(wire, toPeerID: payload.targetPeerID)
+            }
+            return
+        }
+
+        // Capacity management: purge expired then drop oldest if still full
+        let now = Date()
+        storedForwardItems.removeAll { $0.expiresAt <= now }
+        if storedForwardItems.count >= Self.maxStoredForwardItems {
+            storedForwardItems.removeFirst()
+        }
+
+        storedForwardItems.append(StoredForwardItem(
+            targetPeerID: payload.targetPeerID,
+            messageID:    payload.messageID,
+            sealed:       payload.sealed,
+            expiresAt:    payload.expiresAt
+        ))
+    }
+
+    /// We received stored messages from a relay peer (we are the target).
+    private func handleStoreAndForwardDelivery(_ payload: StoreAndForwardDelivery) {
+        for item in payload.items {
+            guard let inner = try? unsealMessage(
+                item.sealed, recipientDHPrivateKey: identity.dhKeyPair.privateKey
+            ) else { continue }
+            // Verify signature if sender is known
+            if let peer = knownPeers[inner.senderID] {
+                guard (try? WireMessageBuilder.verify(
+                    inner, signingKeyPublic: peer.signingKeyPublic
+                )) == true else { continue }
+            }
+            try? processRelayedInnerMessage(inner, hopCount: 0)
+        }
+    }
+
+    /// Deliver all stored-forward items to `peerID` (called when they come online).
+    private func deliverStoredForwardItems(toPeerID peerID: String) {
+        let pending = storedForwardItems.filter { $0.targetPeerID == peerID && $0.expiresAt > Date() }
+        guard !pending.isEmpty else { return }
+        let items = pending.map { StoreAndForwardItem(messageID: $0.messageID, sealed: $0.sealed) }
+        let delivery = StoreAndForwardDelivery(items: items)
+        if let wire = try? wireBuilder.build(.storeAndForwardDelivery, payload: delivery) {
+            try? mesh.send(wire, toPeerID: peerID)
+        }
+        storedForwardItems.removeAll { $0.targetPeerID == peerID }
+    }
+
     private func handleGroupMemberLeft(_ payload: GroupMemberLeftMessage) {
         let myID    = identity.publicIdentity.peerID
         let groupID = payload.groupID
@@ -1176,28 +1278,55 @@ public final class ChatManager: @unchecked Sendable {
         if let iteration = payload.senderKeyIteration {
             // ── v2: Sender Key ratchet ────────────────────────────────────────
             let MAX_SKIP: UInt32 = 100
-            var states = keychain.loadPeerSenderKeyStates(groupID: payload.groupID)
-            guard var senderState = states[payload.senderPeerID] else {
-                return   // No sender key yet — distribution may arrive later
+            let cacheKey = "\(payload.groupID)/\(payload.senderPeerID)"
+
+            // ── Fast path: out-of-order delivery via skipped-key cache ─────────
+            if let cachedKey = skippedGroupMessageKeys[cacheKey]?[iteration] {
+                guard let sealedBox = try? ChaChaPoly.SealedBox(combined: payload.ciphertext),
+                      let bodyData  = try? ChaChaPoly.open(sealedBox, using: cachedKey),
+                      let decoded   = String(data: bodyData, encoding: .utf8) else { return }
+                body             = decoded
+                attachDecryptKey = cachedKey
+                // Consume the cached key so it cannot be replayed
+                skippedGroupMessageKeys[cacheKey]?.removeValue(forKey: iteration)
+                if skippedGroupMessageKeys[cacheKey]?.isEmpty == true {
+                    skippedGroupMessageKeys.removeValue(forKey: cacheKey)
+                }
+            } else {
+                // ── Normal path: advance the chain ───────────────────────────
+                var states = keychain.loadPeerSenderKeyStates(groupID: payload.groupID)
+                guard var senderState = states[payload.senderPeerID] else {
+                    return   // No sender key yet — distribution may arrive later
+                }
+                guard iteration >= senderState.iteration,
+                      iteration - senderState.iteration <= MAX_SKIP else { return }
+
+                // Fast-forward to the target iteration, caching skipped message keys
+                // so out-of-order messages that arrive later can still be decrypted.
+                var cached = skippedGroupMessageKeys[cacheKey] ?? [:]
+                while senderState.iteration < iteration {
+                    let (msgKey, nextCK) = senderKeyRatchetStep(senderState.chainKey)
+                    cached[senderState.iteration] = msgKey
+                    senderState = SenderKeyState(chainKey: nextCK, iteration: senderState.iteration + 1)
+                }
+                // Evict oldest entries if the cache grows too large
+                if cached.count > Self.maxSkippedKeysCacheSize {
+                    cached.keys.sorted()
+                        .prefix(cached.count - Self.maxSkippedKeysCacheSize)
+                        .forEach { cached.removeValue(forKey: $0) }
+                }
+                skippedGroupMessageKeys[cacheKey] = cached.isEmpty ? nil : cached
+
+                let (messageKey, nextCK) = senderKeyRatchetStep(senderState.chainKey)
+                guard let sealedBox = try? ChaChaPoly.SealedBox(combined: payload.ciphertext),
+                      let bodyData  = try? ChaChaPoly.open(sealedBox, using: messageKey),
+                      let decoded   = String(data: bodyData, encoding: .utf8) else { return }
+                body             = decoded
+                attachDecryptKey = messageKey
+
+                states[payload.senderPeerID] = SenderKeyState(chainKey: nextCK, iteration: iteration + 1)
+                try? keychain.savePeerSenderKeyStates(states, groupID: payload.groupID)
             }
-            guard iteration >= senderState.iteration,
-                  iteration - senderState.iteration <= MAX_SKIP else { return }
-
-            // Fast-forward to the target iteration (skipped messages are irrecoverable)
-            while senderState.iteration < iteration {
-                let (_, nextCK) = senderKeyRatchetStep(senderState.chainKey)
-                senderState = SenderKeyState(chainKey: nextCK, iteration: senderState.iteration + 1)
-            }
-
-            let (messageKey, nextCK) = senderKeyRatchetStep(senderState.chainKey)
-            guard let sealedBox = try? ChaChaPoly.SealedBox(combined: payload.ciphertext),
-                  let bodyData  = try? ChaChaPoly.open(sealedBox, using: messageKey),
-                  let decoded   = String(data: bodyData, encoding: .utf8) else { return }
-            body             = decoded
-            attachDecryptKey = messageKey
-
-            states[payload.senderPeerID] = SenderKeyState(chainKey: nextCK, iteration: iteration + 1)
-            try? keychain.savePeerSenderKeyStates(states, groupID: payload.groupID)
 
         } else {
             // ── v1: shared key fallback ───────────────────────────────────────
@@ -1336,6 +1465,9 @@ public final class ChatManager: @unchecked Sendable {
         case .groupMemberLeft:
             let payload = try wireBuilder.decodePayload(GroupMemberLeftMessage.self, from: message)
             handleGroupMemberLeft(payload)
+
+        case .storeAndForward, .storeAndForwardDelivery:
+            break   // S&F is direct-only; relay nodes must not forward these
 
         case .relay, .typing:
             break   // No relay-of-relay; typing over relay has no value
@@ -1497,6 +1629,14 @@ extension ChatManager: MeshManagerDelegate {
             case .groupMemberLeft:
                 let payload = try wireBuilder.decodePayload(GroupMemberLeftMessage.self, from: message)
                 handleGroupMemberLeft(payload)
+
+            case .storeAndForward:
+                let payload = try wireBuilder.decodePayload(StoreAndForwardRequest.self, from: message)
+                handleStoreAndForward(payload)
+
+            case .storeAndForwardDelivery:
+                let payload = try wireBuilder.decodePayload(StoreAndForwardDelivery.self, from: message)
+                handleStoreAndForwardDelivery(payload)
 
             case .relay:
                 let envelope = try wireBuilder.decodePayload(RelayEnvelope.self, from: message)
