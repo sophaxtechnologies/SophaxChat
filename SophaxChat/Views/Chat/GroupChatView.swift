@@ -102,7 +102,7 @@ struct GroupChatView: View {
                              ? "Reply to yourself"
                              : "Reply to \(appState.displayName(forPeerID: replying.senderID ?? ""))")
                             .font(.caption.bold())
-                            .foregroundStyle(.accentColor)
+                            .foregroundStyle(Color.accentColor)
                         Text(replying.body)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -314,7 +314,7 @@ private struct GroupMemberListView: View {
                                     if peerID == myPeerID {
                                         Text("You")
                                             .font(.caption2)
-                                            .foregroundStyle(.accentColor)
+                                            .foregroundStyle(Color.accentColor)
                                             .padding(.horizontal, 5)
                                             .padding(.vertical, 1)
                                             .background(Color.accentColor.opacity(0.1))
@@ -370,7 +370,7 @@ private struct GroupMessageBubble: View {
                 if !isSent && !senderName.isEmpty {
                     Text(senderName)
                         .font(.caption2.bold())
-                        .foregroundStyle(.accentColor)
+                        .foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 4)
                 }
 

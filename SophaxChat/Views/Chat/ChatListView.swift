@@ -211,7 +211,7 @@ struct GroupConversationRow: View {
                     .frame(width: 48, height: 48)
                 Image(systemName: "person.2.fill")
                     .font(.system(size: 20))
-                    .foregroundStyle(.accentColor)
+                    .foregroundStyle(Color.accentColor)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -314,7 +314,7 @@ struct ConversationRow: View {
         case .delivered:
             Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(.green)
         case .read:
-            Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(.accentColor)
+            Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(Color.accentColor)
         case .failed:
             Image(systemName: "exclamationmark.circle").font(.caption2).foregroundStyle(.red)
         }

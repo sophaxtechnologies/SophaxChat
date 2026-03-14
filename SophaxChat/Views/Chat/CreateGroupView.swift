@@ -60,7 +60,7 @@ struct CreateGroupView: View {
                                     Spacer()
                                     if selectedPeerIDs.contains(peer.id) {
                                         Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.accentColor)
+                                            .foregroundStyle(Color.accentColor)
                                     } else {
                                         Image(systemName: "circle")
                                             .foregroundStyle(.tertiary)

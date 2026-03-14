@@ -172,7 +172,7 @@ struct ChatView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(replying.direction == .sent ? "Reply to yourself" : "Reply to \(appState.displayName(for: peer))")
                             .font(.caption.bold())
-                            .foregroundStyle(.accentColor)
+                            .foregroundStyle(Color.accentColor)
                         Text(replying.body)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -671,7 +671,7 @@ struct ForwardPickerView: View {
                                     .overlay {
                                         Text(String(appState.displayName(for: peer).prefix(1)).uppercased())
                                             .font(.subheadline.bold())
-                                            .foregroundStyle(.accentColor)
+                                            .foregroundStyle(Color.accentColor)
                                     }
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(appState.displayName(for: peer))
