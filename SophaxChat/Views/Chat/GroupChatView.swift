@@ -41,122 +41,126 @@ struct GroupChatView: View {
     private var memberCount: Int { group.memberIDs.count }
 
     var body: some View {
+        mainContent
+            .navigationTitle(group.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbarContent }
+            .sheet(isPresented: $showingMemberList) {
+                GroupMemberListView(group: group).environmentObject(appState)
+            }
+            .confirmationDialog(
+                "Leave \"\(group.name)\"?",
+                isPresented: $showingLeaveConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Leave Group", role: .destructive) {
+                    appState.leaveGroup(group); dismiss()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You will no longer receive messages from this group. This cannot be undone.")
+            }
+    }
+
+    private var mainContent: some View {
         VStack(spacing: 0) {
-            // Message list
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(messages) { message in
-                            GroupMessageBubble(
-                                message:    message,
-                                group:      group,
-                                replyingTo: messages.first { $0.id == message.replyToID },
-                                onReply:    { withAnimation { replyingTo = message } }
-                            )
-                        }
-                        Color.clear.frame(height: 1).id("bottom")
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 12)
-                }
-                .onChange(of: messages.count) { _, _ in
-                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                .onAppear {
-                    proxy.scrollTo("bottom", anchor: .bottom)
-                    appState.markGroupAsRead(group: group)
-                    if let saved = UserDefaults.standard.string(forKey: disappearingKey),
-                       let interval = DisappearingInterval(rawValue: saved) {
-                        disappearingInterval = interval
-                    }
-                }
-                .onChange(of: messages.count) { _, _ in
-                    appState.markGroupAsRead(group: group)
-                }
-            }
-
-            // Disappearing messages indicator
-            if disappearingInterval != .off {
-                HStack(spacing: 4) {
-                    Image(systemName: "timer").font(.caption2)
-                    Text("Messages disappear after \(disappearingInterval.rawValue.lowercased())")
-                        .font(.caption2)
-                }
-                .foregroundStyle(.orange)
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
-            }
-
+            messageScrollView
+            disappearingBanner
             Divider()
-
             replyPreviewBar
-
             inputBar
         }
-        .navigationTitle(group.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                // Disappearing messages timer
-                Menu {
-                    ForEach(DisappearingInterval.allCases) { interval in
-                        Button {
-                            disappearingInterval = interval
-                            UserDefaults.standard.set(interval.rawValue, forKey: disappearingKey)
-                        } label: {
-                            if disappearingInterval == interval {
-                                Label(interval.rawValue, systemImage: "checkmark")
-                            } else {
-                                Text(interval.rawValue)
-                            }
-                        }
+    }
+
+    private var messageScrollView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(messages) { message in
+                        GroupMessageBubble(
+                            message:    message,
+                            group:      group,
+                            replyingTo: messages.first { $0.id == message.replyToID },
+                            onReply:    { withAnimation { replyingTo = message } }
+                        )
                     }
-                } label: {
-                    Image(systemName: disappearingInterval.icon)
-                        .foregroundStyle(disappearingInterval == .off ? .primary : .orange)
+                    Color.clear.frame(height: 1).id("bottom")
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
+            }
+            .onChange(of: messages.count) { _, _ in
+                withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .onAppear {
+                proxy.scrollTo("bottom", anchor: .bottom)
+                appState.markGroupAsRead(group: group)
+                if let saved = UserDefaults.standard.string(forKey: disappearingKey),
+                   let interval = DisappearingInterval(rawValue: saved) {
+                    disappearingInterval = interval
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        showingMemberList = true
-                    } label: {
-                        Label("Members (\(group.memberIDs.count))", systemImage: "person.2")
-                    }
-                    Divider()
-                    Button(role: .destructive) {
-                        showingLeaveConfirm = true
-                    } label: {
-                        Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
+            .onChange(of: messages.count) { _, _ in
+                appState.markGroupAsRead(group: group)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var disappearingBanner: some View {
+        if disappearingInterval != .off {
+            HStack(spacing: 4) {
+                Image(systemName: "timer").font(.caption2)
+                Text("Messages disappear after \(disappearingInterval.rawValue.lowercased())")
+                    .font(.caption2)
+            }
+            .foregroundStyle(.orange)
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) { timerMenu }
+        ToolbarItem(placement: .topBarTrailing) { groupMenu }
+    }
+
+    private var timerMenu: some View {
+        Menu {
+            ForEach(DisappearingInterval.allCases) { interval in
+                Button {
+                    disappearingInterval = interval
+                    UserDefaults.standard.set(interval.rawValue, forKey: disappearingKey)
                 } label: {
-                    VStack(spacing: 0) {
-                        Image(systemName: "person.2")
-                            .font(.caption2)
-                        Text("\(group.memberIDs.count)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                    if disappearingInterval == interval {
+                        Label(interval.rawValue, systemImage: "checkmark")
+                    } else {
+                        Text(interval.rawValue)
                     }
                 }
             }
+        } label: {
+            Image(systemName: disappearingInterval.icon)
+                .foregroundStyle(disappearingInterval == .off ? .primary : .orange)
         }
-        .sheet(isPresented: $showingMemberList) {
-            GroupMemberListView(group: group)
-                .environmentObject(appState)
-        }
-        .confirmationDialog(
-            "Leave \"\(group.name)\"?",
-            isPresented: $showingLeaveConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Leave Group", role: .destructive) {
-                appState.leaveGroup(group)
-                dismiss()
+    }
+
+    private var groupMenu: some View {
+        Menu {
+            Button { showingMemberList = true } label: {
+                Label("Members (\(group.memberIDs.count))", systemImage: "person.2")
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("You will no longer receive messages from this group. This cannot be undone.")
+            Divider()
+            Button(role: .destructive) { showingLeaveConfirm = true } label: {
+                Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+        } label: {
+            VStack(spacing: 0) {
+                Image(systemName: "person.2").font(.caption2)
+                Text("\(group.memberIDs.count)").font(.caption2).foregroundStyle(.secondary)
+            }
         }
     }
 
