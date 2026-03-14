@@ -429,6 +429,17 @@ final class AppState: ObservableObject {
         try? chatManager?.connectViaTCP(address: address)
     }
 
+    /// Called on `didBecomeActive` — reconnect to all known peers that have a TCP address.
+    /// No-op if TCP is disabled or no peers have an address.
+    /// Decentralized: connects directly peer-to-peer, no server involved.
+    func reconnectTCPPeers() {
+        guard tcpEnabled, let tcp = chatManager?.tcpTransport else { return }
+        for peer in peers {
+            guard let addr = peer.tcpAddress, !tcp.isConnected(peerID: peer.id) else { continue }
+            try? chatManager?.connectViaTCP(address: addr)
+        }
+    }
+
     // MARK: - App lock
 
     var appLockEnabled: Bool {

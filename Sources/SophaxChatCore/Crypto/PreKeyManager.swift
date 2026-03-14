@@ -38,6 +38,11 @@ public struct PreKeyBundle: Codable, Sendable {
     // Timestamp — peers reject bundles older than CryptoConstants.maxPreKeyBundleAge
     public let timestamp: Date
 
+    /// Optional "host:port" TCP address — if present, the peer is reachable over the internet
+    /// at this address (direct TCP or via SOCKS5/Tor).  Nil means BLE/WiFi-local only.
+    /// Propagated in Hello messages so nearby peers automatically learn internet addresses.
+    public let tcpAddress: String?
+
     /// Verifies the signed prekey signature against the identity key.
     /// MUST be called before using the bundle.
     public func verifySignedPreKey() throws -> Bool {
@@ -93,7 +98,8 @@ public final class PreKeyManager: @unchecked Sendable {
     // MARK: - Public API
 
     /// Generates a PreKeyBundle ready to share with a peer.
-    public func generateBundle() throws -> PreKeyBundle {
+    /// - Parameter tcpAddress: Optional "host:port" to include so peers learn our TCP address.
+    public func generateBundle(tcpAddress: String? = nil) throws -> PreKeyBundle {
         let spkData      = signedPreKey.publicKeyData
         let spkSignature = try identity.sign(spkData)
         let otp = oneTimePreKeys.randomElement()
@@ -108,7 +114,8 @@ public final class PreKeyManager: @unchecked Sendable {
             oneTimePreKeyPublic:   otp?.value.publicKeyData,
             oneTimePreKeyId:       otp?.key,
             username:              pub.username,
-            timestamp:             Date()
+            timestamp:             Date(),
+            tcpAddress:            tcpAddress
         )
     }
 

@@ -70,34 +70,31 @@ struct SettingsView: View {
                     Text("Require Face ID, Touch ID, or passcode to open SophaxChat.")
                 }
 
-                // Internet mode (TCP)
+                // Internet mode — Tor-first
                 Section {
                     Toggle("Internet Mode", isOn: $appState.tcpEnabled)
 
                     if appState.tcpEnabled {
-                        HStack {
-                            Text("TCP Port")
-                            Spacer()
-                            TextField("25519", text: $appState.tcpPort)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 80)
-                                .foregroundStyle(.secondary)
+                        // ── Tor / Orbot (recommended — zero config, solves NAT) ──────────
+                        Link(destination: URL(string: "https://apps.apple.com/app/orbot/id1609461599")!) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Get Orbot — Tor VPN")
+                                        .foregroundStyle(.primary)
+                                    Text("Recommended: enable VPN mode in Orbot, then come back")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
 
+                        // ── Advanced: manual SOCKS5 proxy (Orbot proxy mode / other) ────
                         HStack {
-                            Text("My Address")
-                            Spacer()
-                            TextField("IP:port", text: $appState.myTCPAddress)
-                                .keyboardType(.asciiCapable)
-                                .autocorrectionDisabled()
-                                .textInputAutocapitalization(.never)
-                                .multilineTextAlignment(.trailing)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        HStack {
-                            Text("Tor / SOCKS5 Proxy")
+                            Text("SOCKS5 Proxy")
                             Spacer()
                             TextField("127.0.0.1:9050", text: $appState.tcpSocksProxy)
                                 .keyboardType(.asciiCapable)
@@ -107,6 +104,29 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
 
+                        // ── Advanced: manual IP (for users with static public IP or .onion) ─
+                        HStack {
+                            Text("My Address")
+                            Spacer()
+                            TextField("host:port or .onion:25519", text: $appState.myTCPAddress)
+                                .keyboardType(.asciiCapable)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .multilineTextAlignment(.trailing)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        HStack {
+                            Text("TCP Port")
+                            Spacer()
+                            TextField("25519", text: $appState.tcpPort)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 70)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        // ── Direct connect ────────────────────────────────────────────────
                         HStack {
                             TextField("host:port", text: $tcpConnectAddress)
                                 .keyboardType(.asciiCapable)
@@ -126,9 +146,9 @@ struct SettingsView: View {
                     Text("Internet Mode")
                 } footer: {
                     if appState.tcpEnabled {
-                        Text("TCP lets you chat over the internet, not just nearby. Enter your public IP:port in "My Address" so peers can reach you. Use a local SOCKS5 proxy (e.g. Orbot) for Tor anonymity, or enable Orbot VPN mode system-wide (no proxy config needed). All messages are end-to-end encrypted — TCP is just a carrier.")
+                        Text("Recommended: install Orbot and enable its VPN mode — all traffic automatically routes through Tor, no configuration needed here. Your peer's Orbot .onion address works as "My Address" on their device.\n\nWithout Tor, TCP requires a public IP + open port. All messages are end-to-end encrypted regardless — TCP is just a carrier.")
                     } else {
-                        Text("Enable to chat over the internet. Messages stay end-to-end encrypted regardless of transport.")
+                        Text("Extend beyond local Bluetooth/WiFi. The recommended approach is Tor via Orbot (decentralized, anonymous, solves NAT). Messages stay end-to-end encrypted over any transport.")
                     }
                 }
 

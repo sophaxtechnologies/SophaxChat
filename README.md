@@ -36,12 +36,32 @@
 
 SophaxChat is an **open-source, infrastructure-free, end-to-end encrypted** messenger for iOS and macOS. It works over Bluetooth LE and WiFi Direct by default — no internet required, no servers, no phone number, no account.
 
-When you need to reach someone across the world, an optional TCP transport lets you connect peer-to-peer over the internet (or anonymously through Tor). The cryptographic layer is identical regardless of transport — end-to-end encrypted, authenticated, and forward-secret at all times.
+When you need to reach someone across the world, an optional TCP transport lets you connect peer-to-peer over the internet. The **recommended way** to use this is through **[Orbot](https://apps.apple.com/app/orbot/id1609461599)** (Tor VPN mode) — which routes your TCP traffic anonymously through Tor with zero configuration inside SophaxChat. The cryptographic layer is identical regardless of transport.
 
 Every message is protected by the **Signal Protocol** (X3DH + Double Ratchet with Header Encryption). Your identity is nothing more than a cryptographic key pair generated on your device.
 
 > **Is it still "Anonymous, offline, end-to-end encrypted mesh chat"?**
-> Yes — and more. Local mode (BLE/WiFi) is fully offline and anonymous as always. With TCP enabled, it becomes *global*: still anonymous (no account, no phone number), still end-to-end encrypted (same X3DH + Double Ratchet pipeline), still decentralized (no servers — direct peer-to-peer TCP). TCP and Tor support are optional and off by default.
+> Yes — and more. Local mode (BLE/WiFi) is fully offline and anonymous as always. With TCP enabled via Orbot/Tor, it becomes *global*: still anonymous (no account, no phone number), still end-to-end encrypted (same X3DH + Double Ratchet pipeline), still decentralized (no servers — direct peer-to-peer). TCP and Tor support are optional and off by default.
+
+### Who is SophaxChat for?
+
+**Journalists and activists** — communicate without leaving traces tied to a phone number or account. Combine with Tor (Orbot VPN mode) for transport anonymity.
+
+**Disaster responders and field workers** — no internet? Bluetooth and WiFi mesh still work. Devices relay messages across the network automatically, up to 6 hops.
+
+**Privacy-conscious users** — tired of surrendering your phone number to chat apps. Here, your identity is a cryptographic key pair, generated locally, never shared with any server.
+
+**Developers and researchers** — the full source is open. Cryptographic primitives (X3DH, Double Ratchet, Header Encryption, Sealed Sender) are implemented in ~3 500 lines of auditable Swift using Apple's CryptoKit.
+
+### Philosophy
+
+SophaxChat is built around three principles that cannot be traded away:
+
+1. **No servers, ever.** Servers are honeypots. Every central point is a single point of failure, surveillance, and censorship. SophaxChat communicates directly device-to-device — over Bluetooth, WiFi, and peer-to-peer TCP. The Tor network (via Orbot) provides internet routing without introducing any trusted server.
+
+2. **No identity leakage.** No phone number, no email, no account. Your identity is a Curve25519 key pair, generated on your device, never transmitted to any server. The app doesn't even know your name unless you choose to set one.
+
+3. **Maximum cryptographic protection, not just "good enough".** X3DH gives each session unique key material. Double Ratchet rotates keys every message. Header Encryption hides routing metadata from relay nodes. Sealed Sender hides who is talking to whom. These are not features — they are the baseline.
 
 ### Why does it exist?
 

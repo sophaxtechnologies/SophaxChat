@@ -632,6 +632,8 @@ public struct KnownPeer: Codable, Identifiable, Sendable {
     public var lastSeen:         Date?
     public var isOnline:         Bool
     public var isDirectlyConnected: Bool    // false = reachable only via relay
+    /// "host:port" if the peer advertises a TCP address in their PreKeyBundle; nil otherwise.
+    public var tcpAddress:       String?
 
     public init(from bundle: PreKeyBundle, safetyNumber: String) {
         self.id                  = bundle.peerID
@@ -642,5 +644,6 @@ public struct KnownPeer: Codable, Identifiable, Sendable {
         self.lastSeen            = Date()
         self.isOnline            = true
         self.isDirectlyConnected = true
+        self.tcpAddress          = bundle.tcpAddress
     }
 }

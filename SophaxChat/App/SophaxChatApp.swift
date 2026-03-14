@@ -30,6 +30,8 @@ struct SophaxChatApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     appState.isBlurred = false
                     // AppLockView.onAppear handles unlock attempt automatically
+                    // Re-establish TCP connections that dropped while backgrounded
+                    appState.reconnectTCPPeers()
                 }
         }
         // Background processing task — re-wakes the mesh briefly after iOS suspends the app.
