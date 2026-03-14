@@ -371,7 +371,7 @@ struct ChatView: View {
                         }
                     } label: {
                         Image(systemName: disappearingInterval.icon)
-                            .foregroundStyle(disappearingInterval == .off ? .primary : .orange)
+                            .foregroundStyle(disappearingInterval == .off ? Color.primary : Color.orange)
                     }
 
                     // Safety number + more actions

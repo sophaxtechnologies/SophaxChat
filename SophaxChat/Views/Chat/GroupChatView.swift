@@ -115,7 +115,7 @@ struct GroupChatView: View {
                 Text("Messages disappear after \(disappearingInterval.rawValue.lowercased())")
                     .font(.caption2)
             }
-            .foregroundStyle(.orange)
+            .foregroundStyle(Color.orange)
             .padding(.horizontal, 16)
             .padding(.top, 6)
         }
@@ -143,7 +143,7 @@ struct GroupChatView: View {
             }
         } label: {
             Image(systemName: disappearingInterval.icon)
-                .foregroundStyle(disappearingInterval == .off ? .primary : .orange)
+                .foregroundStyle(disappearingInterval == .off ? Color.primary : Color.orange)
         }
     }
 
