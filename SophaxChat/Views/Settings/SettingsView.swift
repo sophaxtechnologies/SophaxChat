@@ -152,7 +152,8 @@ struct SettingsView: View {
                     }
                 }
 
-                // Support
+                // TODO: enable when BTC/XMR addresses are set up
+                #if SUPPORT_ENABLED
                 Section {
                     Link(destination: URL(string: "https://github.com/sophaxtechnologies/SophaxChat#support")!) {
                         Label("Support SophaxChat", systemImage: "heart.fill")
@@ -165,6 +166,7 @@ struct SettingsView: View {
                 } footer: {
                     Text("SophaxChat is free, open-source, and server-free. If it's useful to you, consider supporting it — via Bitcoin or Monero, no account needed.")
                 }
+                #endif
 
                 // App info
                 Section {

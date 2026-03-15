@@ -520,6 +520,7 @@ Pull requests are welcome. Before contributing:
 
 ---
 
+<!-- Support section — hidden until BTC/XMR addresses are configured
 ## Support
 
 SophaxChat is free, open-source, and always will be. No ads, no subscriptions, no data collection — ever.
@@ -534,6 +535,7 @@ If you find it useful, you can support continued development anonymously:
 Monero is recommended — it's privacy-preserving by design, consistent with everything this project stands for.
 
 You can also ⭐ star the repo, share it, or submit a pull request.
+-->
 
 ---
 
