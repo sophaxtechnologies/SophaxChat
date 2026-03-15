@@ -152,6 +152,20 @@ struct SettingsView: View {
                     }
                 }
 
+                // Support
+                Section {
+                    Link(destination: URL(string: "https://github.com/sophaxtechnologies/SophaxChat#support")!) {
+                        Label("Support SophaxChat", systemImage: "heart.fill")
+                            .foregroundStyle(.pink)
+                    }
+                    Link(destination: URL(string: "https://github.com/sophaxtechnologies/SophaxChat")!) {
+                        Label("View Source on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
+                            .foregroundStyle(.primary)
+                    }
+                } footer: {
+                    Text("SophaxChat is free, open-source, and server-free. If it's useful to you, consider supporting it — via Bitcoin or Monero, no account needed.")
+                }
+
                 // App info
                 Section {
                     HStack {

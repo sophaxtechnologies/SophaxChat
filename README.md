@@ -520,6 +520,23 @@ Pull requests are welcome. Before contributing:
 
 ---
 
+## Support
+
+SophaxChat is free, open-source, and always will be. No ads, no subscriptions, no data collection — ever.
+
+If you find it useful, you can support continued development anonymously:
+
+| Currency | Address |
+|----------|---------|
+| **Bitcoin (BTC)** | `YOUR_BTC_ADDRESS_HERE` |
+| **Monero (XMR)** | `YOUR_XMR_ADDRESS_HERE` |
+
+Monero is recommended — it's privacy-preserving by design, consistent with everything this project stands for.
+
+You can also ⭐ star the repo, share it, or submit a pull request.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
