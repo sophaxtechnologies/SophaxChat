@@ -539,12 +539,18 @@ You can also ⭐ star the repo, share it, or submit a pull request.
 
 ---
 
+## Privacy
+
+SophaxChat collects no data. See [PRIVACY.md](PRIVACY.md) for the full policy (also usable as App Store privacy policy URL).
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
 
 ```
-Copyright (c) 2026 Sophax Technologies
+Copyright (c) 2026 SophaxChat contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
