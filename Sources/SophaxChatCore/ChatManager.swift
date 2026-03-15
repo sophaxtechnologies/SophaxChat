@@ -165,7 +165,8 @@ public final class ChatManager: @unchecked Sendable {
         let expiresAt:    Date
     }
     private var storedForwardItems: [StoredForwardItem] = []
-    private static let maxStoredForwardItems  = 300
+    private static let maxStoredForwardItems    = 300
+    private static let maxStoredForwardPerPeer  = 30    // prevents single-peer DoS
     private static let storeAndForwardTTL: TimeInterval = 48 * 60 * 60   // 48 hours
 
     /// Fires every 60 seconds to purge messages whose expiresAt has passed.
@@ -298,6 +299,20 @@ public final class ChatManager: @unchecked Sendable {
         }
         // Fire once immediately to clean up any stale messages from previous sessions
         purgeExpiredMessages()
+    }
+
+    /// Executes a Keychain save, logging failures in debug builds.
+    /// Silent discard is intentional in release — Keychain errors are transient
+    /// (locked device, quota) and should not crash the app or abort message flow.
+    @inline(__always)
+    private func keychainSave(_ label: String, _ operation: () throws -> Void) {
+        do {
+            try operation()
+        } catch {
+            #if DEBUG
+            print("[SophaxChat] ⚠️ Keychain save failed (\(label)): \(error)")
+            #endif
+        }
     }
 
     private func purgeExpiredMessages() {
@@ -509,7 +524,7 @@ public final class ChatManager: @unchecked Sendable {
             let (messageKey, nextCK) = senderKeyRatchetStep(myState.chainKey)
             let iteration            = myState.iteration
             myState = SenderKeyState(chainKey: nextCK, iteration: iteration + 1)
-            try? keychain.saveMySenderKeyState(myState, groupID: groupID)
+            keychainSave("mySenderKey:\(groupID)") { try keychain.saveMySenderKeyState(myState, groupID: groupID) }
             guard let bodyData = body.data(using: .utf8),
                   let sealed   = try? ChaChaPoly.seal(bodyData, using: messageKey) else {
                 fail(SophaxError.encryptionFailed("Group message body encryption failed"))
@@ -637,7 +652,7 @@ public final class ChatManager: @unchecked Sendable {
             let (messageKey, nextCK) = senderKeyRatchetStep(myState.chainKey)
             let iteration            = myState.iteration
             myState = SenderKeyState(chainKey: nextCK, iteration: iteration + 1)
-            try? keychain.saveMySenderKeyState(myState, groupID: groupID)
+            keychainSave("mySenderKey:\(groupID)") { try keychain.saveMySenderKeyState(myState, groupID: groupID) }
             guard let bodyData   = displayBody.data(using: .utf8),
                   let sealedBody = try? ChaChaPoly.seal(bodyData, using: messageKey),
                   let sealedAtt  = try? ChaChaPoly.seal(data,     using: messageKey) else {
@@ -1312,9 +1327,12 @@ public final class ChatManager: @unchecked Sendable {
             return
         }
 
-        // Capacity management: purge expired then drop oldest if still full
+        // Capacity management: purge expired, enforce global cap + per-peer cap
         let now = Date()
         storedForwardItems.removeAll { $0.expiresAt <= now }
+        // Per-peer cap: prevents a single attacker peer from consuming all slots
+        let peerCount = storedForwardItems.filter { $0.targetPeerID == payload.targetPeerID }.count
+        guard peerCount < Self.maxStoredForwardPerPeer else { return }
         if storedForwardItems.count >= Self.maxStoredForwardItems {
             storedForwardItems.removeFirst()
         }
@@ -1374,15 +1392,16 @@ public final class ChatManager: @unchecked Sendable {
         // Remove the leaver's sender key state so we stop trying to decrypt with old material
         var states = keychain.loadPeerSenderKeyStates(groupID: groupID)
         states.removeValue(forKey: leavingPeerID)
-        try? keychain.savePeerSenderKeyStates(states, groupID: groupID)
+        keychainSave("peerSenderKeys:\(groupID)") { try keychain.savePeerSenderKeyStates(states, groupID: groupID) }
 
         // Rotate our own sender key (fresh random seed) so the leaver's copy of our
         // old chain key is no longer valid for any future messages.
         guard keychain.loadMySenderKeyState(groupID: groupID) != nil else { return }
         let tmpKey      = SymmetricKey(size: .bits256)
         let newChainKey = tmpKey.withUnsafeBytes { Data($0) }
-        try? keychain.saveMySenderKeyState(
-            SenderKeyState(chainKey: newChainKey, iteration: 0), groupID: groupID)
+        keychainSave("mySenderKey:\(groupID)") {
+            try keychain.saveMySenderKeyState(SenderKeyState(chainKey: newChainKey, iteration: 0), groupID: groupID)
+        }
 
         // Re-distribute our new sender key to every remaining member (excluding self)
         let skd = SenderKeyDistributionMessage(groupID: groupID, chainKey: newChainKey, iteration: 0)
@@ -1409,13 +1428,13 @@ public final class ChatManager: @unchecked Sendable {
                 chainKey:  senderChainKey,
                 iteration: invite.senderIteration ?? 0
             )
-            try? keychain.savePeerSenderKeyStates(states, groupID: invite.groupID)
+            keychainSave("peerSenderKeys:\(invite.groupID)") { try keychain.savePeerSenderKeyStates(states, groupID: invite.groupID) }
 
             // Generate my own sender key and store it
             let tmpKey       = SymmetricKey(size: .bits256)
             let chainKeyData = tmpKey.withUnsafeBytes { Data($0) }
             let myState      = SenderKeyState(chainKey: chainKeyData, iteration: 0)
-            try? keychain.saveMySenderKeyState(myState, groupID: invite.groupID)
+            keychainSave("mySenderKey:\(invite.groupID)") { try keychain.saveMySenderKeyState(myState, groupID: invite.groupID) }
 
             // Distribute my sender key to all other members via DR
             let skd = SenderKeyDistributionMessage(groupID: invite.groupID, chainKey: chainKeyData)
@@ -1434,7 +1453,7 @@ public final class ChatManager: @unchecked Sendable {
         } else if let keyData = invite.groupKeyData {
             // ── v1: shared key fallback ───────────────────────────────────────
             let groupKey = SymmetricKey(data: keyData)
-            try? keychain.saveGroupKey(groupKey, groupID: invite.groupID)
+            keychainSave("groupKey:\(invite.groupID)") { try keychain.saveGroupKey(groupKey, groupID: invite.groupID) }
         }
 
         let group = GroupInfo(
@@ -1503,7 +1522,7 @@ public final class ChatManager: @unchecked Sendable {
                 attachDecryptKey = messageKey
 
                 states[payload.senderPeerID] = SenderKeyState(chainKey: nextCK, iteration: iteration + 1)
-                try? keychain.savePeerSenderKeyStates(states, groupID: payload.groupID)
+                keychainSave("peerSenderKeys:\(payload.groupID)") { try keychain.savePeerSenderKeyStates(states, groupID: payload.groupID) }
             }
 
         } else {
@@ -1940,7 +1959,7 @@ extension ChatManager: MeshManagerDelegate {
 
         var states        = keychain.loadPeerSenderKeyStates(groupID: skd.groupID)
         states[peerID]    = SenderKeyState(chainKey: skd.chainKey, iteration: skd.iteration)
-        try? keychain.savePeerSenderKeyStates(states, groupID: skd.groupID)
+        keychainSave("peerSenderKeys:\(skd.groupID)") { try keychain.savePeerSenderKeyStates(states, groupID: skd.groupID) }
     }
 
     // MARK: - Private: TCP helpers

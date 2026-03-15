@@ -30,12 +30,24 @@ struct GroupChatView: View {
     // Reply
     @State private var replyingTo: StoredMessage? = nil
 
+    // Forward
+    @State private var forwardingMessage: StoredMessage? = nil
+
+    // Search
+    @State private var isSearching: Bool   = false
+    @State private var searchQuery: String = ""
+
     // UI state
     @State private var showingMemberList   = false
     @State private var showingLeaveConfirm = false
 
     private var messages: [StoredMessage] {
         appState.messages[group.conversationID] ?? []
+    }
+
+    private var displayedMessages: [StoredMessage] {
+        guard isSearching, !searchQuery.isEmpty else { return messages }
+        return messages.filter { $0.body.localizedCaseInsensitiveContains(searchQuery) }
     }
 
     private var memberCount: Int { group.memberIDs.count }
@@ -47,6 +59,10 @@ struct GroupChatView: View {
             .toolbar { toolbarContent }
             .sheet(isPresented: $showingMemberList) {
                 GroupMemberListView(group: group).environmentObject(appState)
+            }
+            .sheet(item: $forwardingMessage) { message in
+                ForwardPickerView(message: message)
+                    .environmentObject(appState)
             }
             .confirmationDialog(
                 "Leave \"\(group.name)\"?",
@@ -67,21 +83,44 @@ struct GroupChatView: View {
             messageScrollView
             disappearingBanner
             Divider()
+            if isSearching {
+                searchBar
+            }
             replyPreviewBar
             inputBar
         }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.tertiary)
+            TextField("Search messages…", text: $searchQuery)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            if !searchQuery.isEmpty {
+                Button { searchQuery = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 
     private var messageScrollView: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    ForEach(messages) { message in
+                    ForEach(displayedMessages) { message in
                         GroupMessageBubble(
                             message:    message,
                             group:      group,
                             replyingTo: messages.first { $0.id == message.replyToID },
-                            onReply:    { withAnimation { replyingTo = message } }
+                            onReply:    { withAnimation { replyingTo = message } },
+                            onForward:  { forwardingMessage = message }
                         )
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -92,6 +131,7 @@ struct GroupChatView: View {
             }
             .onChange(of: messages.count) { _, _ in
                 withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                appState.markGroupAsRead(group: group)
             }
             .onAppear {
                 proxy.scrollTo("bottom", anchor: .bottom)
@@ -100,9 +140,6 @@ struct GroupChatView: View {
                    let interval = DisappearingInterval(rawValue: saved) {
                     disappearingInterval = interval
                 }
-            }
-            .onChange(of: messages.count) { _, _ in
-                appState.markGroupAsRead(group: group)
             }
         }
     }
@@ -123,6 +160,14 @@ struct GroupChatView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                withAnimation { isSearching.toggle() }
+                if !isSearching { searchQuery = "" }
+            } label: {
+                Image(systemName: isSearching ? "xmark.circle" : "magnifyingglass")
+            }
+        }
         ToolbarItem(placement: .topBarTrailing) { timerMenu }
         ToolbarItem(placement: .topBarTrailing) { groupMenu }
     }
@@ -365,6 +410,7 @@ private struct GroupMessageBubble: View {
     let group:      GroupInfo
     let replyingTo: StoredMessage?   // quoted message (nil if not a reply)
     let onReply:    () -> Void
+    let onForward:  () -> Void
 
     private var isSent: Bool { message.direction == .sent }
 
@@ -404,6 +450,11 @@ private struct GroupMessageBubble: View {
                         UIPasteboard.general.string = message.body
                     } label: {
                         Label("Copy", systemImage: "doc.on.doc")
+                    }
+                    Button {
+                        onForward()
+                    } label: {
+                        Label("Forward", systemImage: "arrowshape.turn.up.right")
                     }
                     Divider()
                     ForEach(["👍", "❤️", "😂", "😮", "😢", "👎"], id: \.self) { emoji in

@@ -213,12 +213,12 @@ All private keys and session states are stored in the **iOS Keychain** with `kSe
 | Text messages | ✅ | ✅ |
 | Image sharing | ✅ | ✅ |
 | Voice messages (PTT, AAC M4A) | ✅ | ✅ |
-| Reply to message (quoted bubble) | ✅ | — |
-| Message reactions (6-emoji) | ✅ | — |
-| Read receipts (blue tick) | ✅ | — |
+| Reply to message (quoted bubble) | ✅ | ✅ |
+| Message reactions (6-emoji) | ✅ | ✅ |
+| Read receipts (blue tick) | ✅ | ✅ |
 | Disappearing messages (30s–7d) | ✅ | ✅ |
-| Forward message | ✅ | — |
-| Message search | ✅ | — |
+| Forward message | ✅ | ✅ |
+| Message search | ✅ | ✅ |
 
 ### Groups
 
