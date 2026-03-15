@@ -604,6 +604,22 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Keychain helpers
+
+    /// Executes a Keychain save, logging failures in debug builds.
+    /// Silent discard is intentional in release — Keychain errors are transient
+    /// (locked device, quota) and must not crash the app or block the call site.
+    @inline(__always)
+    private func keychainSave(_ label: String, _ operation: () throws -> Void) {
+        do {
+            try operation()
+        } catch {
+            #if DEBUG
+            print("[SophaxChat] ⚠️ Keychain save failed (\(label)): \(error)")
+            #endif
+        }
+    }
+
     // MARK: - Verified peers persistence
 
     private func loadVerifiedPeers() {
@@ -619,13 +635,13 @@ final class AppState: ObservableObject {
            let saved = try? JSONDecoder().decode([String: String].self, from: data),
            !saved.isEmpty {
             verifiedPeers = saved
-            try? keychain.saveVerifiedPeers(saved)
+            keychainSave("verifiedPeers:migration") { try keychain.saveVerifiedPeers(saved) }
             UserDefaults.standard.removeObject(forKey: legacyKey)
         }
     }
 
     private func saveVerifiedPeers() {
-        try? keychain.saveVerifiedPeers(verifiedPeers)
+        keychainSave("verifiedPeers") { try keychain.saveVerifiedPeers(verifiedPeers) }
     }
 }
 
