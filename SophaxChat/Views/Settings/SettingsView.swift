@@ -134,7 +134,6 @@ struct SettingsView: View {
                                 .textInputAutocapitalization(.never)
                             Button("Connect") {
                                 let addr = tcpConnectAddress.trimmingCharacters(in: .whitespaces)
-                                guard !addr.isEmpty else { return }
                                 appState.connectViaTCP(address: addr)
                                 tcpConnectAddress = ""
                             }
@@ -152,7 +151,6 @@ struct SettingsView: View {
                     }
                 }
 
-                // TODO: enable when BTC/XMR addresses are set up
                 #if SUPPORT_ENABLED
                 Section {
                     Link(destination: URL(string: "https://github.com/sophaxtechnologies/SophaxChat#support")!) {

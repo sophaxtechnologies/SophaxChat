@@ -48,10 +48,8 @@ struct ChatView: View {
     @State private var disappearingInterval: DisappearingInterval = .off
     @State private var typingTask: Task<Void, Never>? = nil
     @FocusState private var isInputFocused: Bool
-    @Namespace private var bottomAnchor
 
     // Attachment / camera
-    @State private var showingAttachMenu   = false
     @State private var photoPickerItem:    PhotosPickerItem? = nil
     @State private var showingCamera       = false
 
@@ -115,15 +113,12 @@ struct ChatView: View {
                     .padding(.bottom, 12)
                 }
                 .onChange(of: messages.count) { _, _ in
-                    withAnimation {
-                        proxy.scrollTo("bottom", anchor: .bottom)
-                    }
+                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                    appState.markAsRead(peerID: peer.id)
                 }
                 .onChange(of: appState.typingPeers.contains(peer.id)) { _, isTyping in
                     if isTyping {
-                        withAnimation {
-                            proxy.scrollTo("bottom", anchor: .bottom)
-                        }
+                        withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                     }
                 }
                 .onAppear {
@@ -133,9 +128,6 @@ struct ChatView: View {
                        let interval = DisappearingInterval(rawValue: saved) {
                         disappearingInterval = interval
                     }
-                }
-                .onChange(of: messages.count) { _, _ in
-                    appState.markAsRead(peerID: peer.id)
                 }
             }
 
