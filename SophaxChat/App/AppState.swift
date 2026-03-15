@@ -424,9 +424,28 @@ final class AppState: ObservableObject {
 
     // MARK: - TCP internet mode
 
-    /// Initiate an outbound TCP connection to a peer at "host:port".
-    func connectViaTCP(address: String) {
-        try? chatManager?.connectViaTCP(address: address)
+    /// Initiate an outbound TCP connection to a peer at "host:port" or "host.onion:port".
+    /// Returns an error message string on failure, nil on success.
+    @discardableResult
+    func connectViaTCP(address: String) -> String? {
+        guard Self.isValidTCPAddress(address) else {
+            return "Invalid address. Use host:port format, e.g. 192.168.1.1:25519 or xyz.onion:25519"
+        }
+        do {
+            try chatManager?.connectViaTCP(address: address)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Validates "host:port" format. Splits on the last colon to support .onion and IPv4.
+    static func isValidTCPAddress(_ address: String) -> Bool {
+        guard let colonIdx = address.lastIndex(of: ":") else { return false }
+        let host = String(address[..<colonIdx])
+        let portStr = String(address[address.index(after: colonIdx)...])
+        guard !host.isEmpty, let port = UInt16(portStr), port > 0 else { return false }
+        return true
     }
 
     /// Called on `didBecomeActive` — reconnect to all known peers that have a TCP address.

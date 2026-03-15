@@ -134,8 +134,12 @@ struct SettingsView: View {
                                 .textInputAutocapitalization(.never)
                             Button("Connect") {
                                 let addr = tcpConnectAddress.trimmingCharacters(in: .whitespaces)
-                                appState.connectViaTCP(address: addr)
-                                tcpConnectAddress = ""
+                                if let err = appState.connectViaTCP(address: addr) {
+                                    tcpConnectError    = err
+                                    showTCPConnectAlert = true
+                                } else {
+                                    tcpConnectAddress = ""
+                                }
                             }
                             .buttonStyle(.bordered)
                             .disabled(tcpConnectAddress.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -198,6 +202,11 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .alert("Connection Failed", isPresented: $showTCPConnectAlert) {
+                Button("OK", role: .cancel) { tcpConnectError = nil }
+            } message: {
+                Text(tcpConnectError ?? "")
             }
         }
     }

@@ -24,6 +24,10 @@
 	<array>
 		<string>_sophax-chat._tcp</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>SophaxChat uses Bluetooth to discover nearby users and send encrypted messages without internet.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>SophaxChat uses the camera to take and send photos in encrypted messages.</string>
 	<key>NSFaceIDUsageDescription</key>
