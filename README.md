@@ -497,7 +497,7 @@ Do not open public issues for security bugs.
 
 ### Seeking external support
 
-- [ ] **Independent third-party security audit** — highest-priority post-v1.0 item. Target: [NLnet / NGI Zero](https://nlnet.nl/NGI0/) grant. Contact security@sophax.com if you are interested in auditing.
+- [ ] **Independent third-party security audit** — highest-priority post-v1.0 item. Target: [NLnet / NGI Zero](https://nlnet.nl/NGI0/) grant. Open a [GitHub Security Advisory](https://github.com/sophaxtechnologies/SophaxChat/security/advisories/new) if you are interested in auditing.
 - [ ] **Hardware security key binding** — Secure Enclave identity key storage (migration path needed for existing installs) and FIDO2 external key support (requires ASAuthorizationSecurityKeyPublicKeyCredentialProvider, iOS 16+). Planned post-audit.
 
 ---

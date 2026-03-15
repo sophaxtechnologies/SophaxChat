@@ -211,6 +211,6 @@ Performance micro-issue; no security impact.
 
 Please **do not open public GitHub issues** for security vulnerabilities.
 
-Contact: **security@sophax.com** (or the maintainer contact listed in the repository).
+Use **[GitHub Security Advisories](https://github.com/sophaxtechnologies/SophaxChat/security/advisories/new)** — private, end-to-end encrypted between reporter and maintainers, no central server involved.
 
 We aim to respond within 72 hours. Coordinated disclosure window: 90 days.

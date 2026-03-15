@@ -30,6 +30,18 @@
                 <string>CA92.1</string>
             </array>
         </dict>
+        <!-- File timestamps: MessageStore reads and writes encrypted message files.
+             System may access modification timestamps during these operations.
+             Files are written and read only by this app. -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <!-- C617.1: Access timestamps of files written by this app -->
+                <string>C617.1</string>
+            </array>
+        </dict>
     </array>
 </dict>
 </plist>
